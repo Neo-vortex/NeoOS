@@ -33,6 +33,7 @@ stack_top:
 section .text
 [bits 32]
 global _start
+extern kmain
 
 _start:
     mov esp, stack_top
@@ -138,6 +139,7 @@ gdt64:
 section .text
 [bits 64]
 long_mode_start:
+    mov edi, edi
     mov ax, gdt64.data
     mov ss, ax
     mov ds, ax
@@ -145,18 +147,7 @@ long_mode_start:
     mov fs, ax
     mov gs, ax
 
-    mov byte [0xb8000], 'L'
-    mov byte [0xb8001], 0x0b
-    mov byte [0xb8002], 'O'
-    mov byte [0xb8003], 0x0b
-    mov byte [0xb8004], 'N'
-    mov byte [0xb8005], 0x0b
-    mov byte [0xb8006], 'G'
-    mov byte [0xb8007], 0x0b
-    mov byte [0xb8008], '6'
-    mov byte [0xb8009], 0x0b
-    mov byte [0xb800a], '4'
-    mov byte [0xb800b], 0x0b
+    call kmain
 
     cli
 .hang:
