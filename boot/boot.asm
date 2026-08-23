@@ -18,6 +18,13 @@ header_start:
 header_end:
 
 section .bss
+align 4096
+p4_table:
+    resb 4096
+p3_table:
+    resb 4096
+p2_table:
+    resb 4096
 align 16
 stack_bottom:
     resb 16384
@@ -32,24 +39,11 @@ _start:
     mov edi, ebx            ; save multiboot info pointer before cpuid clobbers ebx
 
     call check_long_mode_supported
+    call set_up_page_tables
+    call enable_paging
 
-    mov byte [0xb8000], 'B'
-    mov byte [0xb8001], 0x0a
-    mov byte [0xb8002], 'O'
-    mov byte [0xb8003], 0x0a
-    mov byte [0xb8004], 'O'
-    mov byte [0xb8005], 0x0a
-    mov byte [0xb8006], 'T'
-    mov byte [0xb8007], 0x0a
-    mov byte [0xb8008], 'O'
-    mov byte [0xb8009], 0x0a
-    mov byte [0xb800a], 'K'
-    mov byte [0xb800b], 0x0a
-
-    cli
-.hang:
-    hlt
-    jmp .hang
+    lgdt [gdt64.pointer]
+    jmp gdt64.code:long_mode_start
 
 ; Halts with a red "ERR" pattern on VGA if the CPU lacks CPUID's
 ; extended long-mode leaf, or long mode itself isn't supported.
@@ -89,3 +83,82 @@ check_long_mode_supported:
 .hang2:
     hlt
     jmp .hang2
+
+; Identity-maps the first 1GiB using 2MiB pages: PML4[0] -> PDPT[0] -> 512 PD entries.
+set_up_page_tables:
+    mov eax, p3_table
+    or eax, 0b11
+    mov [p4_table], eax
+
+    mov eax, p2_table
+    or eax, 0b11
+    mov [p3_table], eax
+
+    mov ecx, 0
+.map_p2_table:
+    mov eax, 0x200000
+    mul ecx
+    or eax, 0b10000011      ; present + writable + huge page (2MiB)
+    mov [p2_table + ecx * 8], eax
+
+    inc ecx
+    cmp ecx, 512
+    jne .map_p2_table
+    ret
+
+enable_paging:
+    mov eax, p4_table
+    mov cr3, eax
+
+    mov eax, cr4
+    or eax, 1 << 5           ; PAE
+    mov cr4, eax
+
+    mov ecx, 0xC0000080      ; EFER MSR
+    rdmsr
+    or eax, 1 << 8           ; LME
+    wrmsr
+
+    mov eax, cr0
+    or eax, 1 << 31          ; PG
+    mov cr0, eax
+    ret
+
+section .rodata
+gdt64:
+    dq 0
+.code: equ $ - gdt64
+    dq (1<<43) | (1<<44) | (1<<47) | (1<<53)
+.data: equ $ - gdt64
+    dq (1<<41) | (1<<44) | (1<<47)
+.pointer:
+    dw $ - gdt64 - 1
+    dq gdt64
+
+section .text
+[bits 64]
+long_mode_start:
+    mov ax, gdt64.data
+    mov ss, ax
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    mov byte [0xb8000], 'L'
+    mov byte [0xb8001], 0x0b
+    mov byte [0xb8002], 'O'
+    mov byte [0xb8003], 0x0b
+    mov byte [0xb8004], 'N'
+    mov byte [0xb8005], 0x0b
+    mov byte [0xb8006], 'G'
+    mov byte [0xb8007], 0x0b
+    mov byte [0xb8008], '6'
+    mov byte [0xb8009], 0x0b
+    mov byte [0xb800a], '4'
+    mov byte [0xb800b], 0x0b
+
+    cli
+.hang:
+    hlt
+    jmp .hang
