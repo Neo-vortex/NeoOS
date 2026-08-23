@@ -29,6 +29,9 @@ global _start
 
 _start:
     mov esp, stack_top
+    mov edi, ebx            ; save multiboot info pointer before cpuid clobbers ebx
+
+    call check_long_mode_supported
 
     mov byte [0xb8000], 'B'
     mov byte [0xb8001], 0x0a
@@ -47,3 +50,42 @@ _start:
 .hang:
     hlt
     jmp .hang
+
+; Halts with a red "ERR" pattern on VGA if the CPU lacks CPUID's
+; extended long-mode leaf, or long mode itself isn't supported.
+check_long_mode_supported:
+    pushfd
+    pop eax
+    mov ecx, eax
+    xor eax, 1 << 21
+    push eax
+    popfd
+    pushfd
+    pop eax
+    push ecx
+    popfd
+    xor eax, ecx
+    jz .no_long_mode
+
+    mov eax, 0x80000000
+    cpuid
+    cmp eax, 0x80000001
+    jb .no_long_mode
+
+    mov eax, 0x80000001
+    cpuid
+    test edx, 1 << 29
+    jz .no_long_mode
+    ret
+
+.no_long_mode:
+    mov byte [0xb8000], 'E'
+    mov byte [0xb8001], 0x4f
+    mov byte [0xb8002], 'R'
+    mov byte [0xb8003], 0x4f
+    mov byte [0xb8004], 'R'
+    mov byte [0xb8005], 0x4f
+    cli
+.hang2:
+    hlt
+    jmp .hang2
