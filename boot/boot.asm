@@ -1,4 +1,4 @@
-; boot/boot.asm — Multiboot2 header + minimal 32-bit entry point
+; boot/boot.asm — Multiboot2 header, long-mode transition, and entry into the C kernel
 
 MULTIBOOT2_MAGIC    equ 0xe85250d6
 MULTIBOOT2_ARCH     equ 0

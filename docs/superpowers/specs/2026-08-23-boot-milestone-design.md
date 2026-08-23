@@ -13,8 +13,9 @@ decided in a later spec.
 Running `make run` boots `neoos.iso` in QEMU and:
 - The screen shows the text "NeoOS booted" (VGA text mode).
 - The CPU halts cleanly afterward (no reboot loop, no triple fault).
-- If the host CPU lacks long-mode/PAE support, a visible error pattern
-  is shown instead of a silent failure.
+- If the host CPU lacks long-mode support, a visible error pattern
+  is shown instead of a silent failure (PAE is implied by long-mode
+  support on all real hardware, so no separate PAE check is needed).
 
 ## Architecture
 
@@ -32,7 +33,7 @@ Running `make run` boots `neoos.iso` in QEMU and:
      halts (`cli; hlt` loop) rather than continuing into an undefined
      state.
    - Builds minimal identity-mapped page tables (PML4 → PDPT → PD
-     using 2MB pages) covering only the first few MB — no higher-half
+     using 2MB pages) covering the first 1GiB — no higher-half
      kernel mapping in this milestone.
    - Enables PAE (CR4.PAE), sets the LME bit in the EFER MSR, enables
      paging (CR0.PG), loads a 64-bit GDT, and far-jumps into 64-bit
