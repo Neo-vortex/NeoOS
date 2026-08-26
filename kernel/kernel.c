@@ -7,6 +7,7 @@
 #include "acpi.h"
 #include "pic.h"
 #include "lapic.h"
+#include "ioapic.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -33,6 +34,9 @@ void kmain(void *multiboot_info) {
     lapic_init(acpi.lapic_address);
     serial_write_string("[lapic] enabled, id="); serial_write_hex64(lapic_get_id());
     serial_write_string("\n");
+
+    ioapic_init(acpi.ioapic_address);
+    serial_write_string("[ioapic] initialized\n");
 
     for (;;) {
         __asm__ volatile ("hlt");
