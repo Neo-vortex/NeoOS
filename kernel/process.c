@@ -127,7 +127,7 @@ void schedule(void) {
 struct task *spawn(const char *path) {
     uint16_t cluster;
     uint32_t size;
-    if (!fat16_find(path, &cluster, &size)) {
+    if (!fat16_find(path, &cluster, &size, NULL, NULL)) {
         serial_write_string("[process] spawn FAILED: file not found: ");
         serial_write_string(path);
         serial_write_string("\n");

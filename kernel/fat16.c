@@ -2,6 +2,7 @@
 #include "ata.h"
 #include "serial.h"
 #include "mm/heap.h"
+#include "errno.h"
 
 #define FAT_ATTR_DIRECTORY 0x10
 #define FAT_ATTR_VOLUME_ID 0x08
@@ -201,9 +202,11 @@ static int fat_name_matches(const uint8_t *entry_name, const uint8_t *target_nam
 }
 
 // Scans one sector's worth of directory entries for target_name.
-// Returns 1 (found, *out filled), 0 (not found in this sector, keep
-// scanning), or -1 (hit the end-of-directory marker, stop entirely).
-static int scan_sector_for_name(const uint8_t *sector, const uint8_t *target_name, struct fat16_dirent *out) {
+// Returns 1 (found, *out filled, *out_lba/*out_offset set to the
+// entry's on-disk location, both nullable), 0 (not found in this
+// sector, keep scanning), or -1 (hit the end-of-directory marker).
+static int scan_sector_for_name(const uint8_t *sector, uint32_t sector_lba, const uint8_t *target_name,
+                                  struct fat16_dirent *out, uint32_t *out_lba, uint16_t *out_offset) {
     const struct fat16_dirent *entries = (const struct fat16_dirent *)sector;
     for (uint32_t e = 0; e < DIRENTS_PER_SECTOR; e++) {
         if (entries[e].name[0] == 0x00) {
@@ -220,17 +223,25 @@ static int scan_sector_for_name(const uint8_t *sector, const uint8_t *target_nam
         }
         if (fat_name_matches(entries[e].name, target_name)) {
             *out = entries[e];
+            if (out_lba) {
+                *out_lba = sector_lba;
+            }
+            if (out_offset) {
+                *out_offset = (uint16_t)(e * sizeof(struct fat16_dirent));
+            }
             return 1;
         }
     }
     return 0;
 }
 
-static int find_in_root(const uint8_t *target_name, struct fat16_dirent *out) {
+static int find_in_root(const uint8_t *target_name, struct fat16_dirent *out,
+                          uint32_t *out_lba, uint16_t *out_offset) {
     uint8_t sector[SECTOR_SIZE];
     for (uint32_t s = 0; s < root_dir_sector_count; s++) {
-        ata_read_sectors(root_dir_start_lba + s, 1, sector);
-        int result = scan_sector_for_name(sector, target_name, out);
+        uint32_t lba = root_dir_start_lba + s;
+        ata_read_sectors(lba, 1, sector);
+        int result = scan_sector_for_name(sector, lba, target_name, out, out_lba, out_offset);
         if (result != 0) {
             return result > 0;
         }
@@ -238,14 +249,15 @@ static int find_in_root(const uint8_t *target_name, struct fat16_dirent *out) {
     return 0;
 }
 
-static int find_in_directory_cluster(uint16_t dir_cluster, const uint8_t *target_name, struct fat16_dirent *out) {
+static int find_in_directory_cluster(uint16_t dir_cluster, const uint8_t *target_name, struct fat16_dirent *out,
+                                       uint32_t *out_lba, uint16_t *out_offset) {
     uint8_t sector[SECTOR_SIZE];
     uint16_t cluster = dir_cluster;
     while (cluster < FAT16_EOC_MIN) {
         uint32_t lba = cluster_to_lba(cluster);
         for (uint8_t s = 0; s < sectors_per_cluster; s++) {
             ata_read_sectors(lba + s, 1, sector);
-            int result = scan_sector_for_name(sector, target_name, out);
+            int result = scan_sector_for_name(sector, lba + s, target_name, out, out_lba, out_offset);
             if (result != 0) {
                 return result > 0;
             }
@@ -255,7 +267,257 @@ static int find_in_directory_cluster(uint16_t dir_cluster, const uint8_t *target
     return 0;
 }
 
-int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size) {
+static void write_dirent(struct fat16_dirent *entry, const uint8_t *fat_name, uint8_t attr,
+                           uint16_t first_cluster, uint32_t size) {
+    for (int i = 0; i < 11; i++) {
+        entry->name[i] = fat_name[i];
+    }
+    entry->attr = attr;
+    entry->nt_reserved = 0;
+    entry->create_time_tenth = 0;
+    entry->create_time = 0;
+    entry->create_date = 0;
+    entry->access_date = 0;
+    entry->first_cluster_high = 0;
+    entry->write_time = 0;
+    entry->write_date = 0;
+    entry->first_cluster_low = first_cluster;
+    entry->file_size = size;
+}
+
+// Finds a free slot (0x00 never-used or 0xE5 deleted) in the given
+// directory (in_root selects the fixed-size root directory over
+// dir_cluster) and writes a new entry there. For a non-root directory
+// that's completely full, allocates and links one more cluster before
+// retrying. Returns 1 on success (fills *out_lba/*out_offset with the
+// new entry's location), or -ENOSPC (root full, or disk full when a
+// non-root directory needs to grow).
+static int create_entry_in_directory(uint16_t dir_cluster, int in_root, const uint8_t *fat_name,
+                                       uint8_t attr, uint16_t first_cluster, uint32_t size,
+                                       uint32_t *out_lba, uint16_t *out_offset) {
+    uint8_t sector[SECTOR_SIZE];
+
+    if (in_root) {
+        for (uint32_t s = 0; s < root_dir_sector_count; s++) {
+            uint32_t lba = root_dir_start_lba + s;
+            ata_read_sectors(lba, 1, sector);
+            struct fat16_dirent *entries = (struct fat16_dirent *)sector;
+            for (uint32_t e = 0; e < DIRENTS_PER_SECTOR; e++) {
+                if (entries[e].name[0] == 0x00 || entries[e].name[0] == 0xE5) {
+                    write_dirent(&entries[e], fat_name, attr, first_cluster, size);
+                    ata_write_sectors(lba, 1, sector);
+                    if (out_lba) {
+                        *out_lba = lba;
+                    }
+                    if (out_offset) {
+                        *out_offset = (uint16_t)(e * sizeof(struct fat16_dirent));
+                    }
+                    return 1;
+                }
+            }
+        }
+        return -ENOSPC;
+    }
+
+    uint16_t cluster = dir_cluster;
+    uint16_t last_cluster = dir_cluster;
+    while (cluster < FAT16_EOC_MIN) {
+        uint32_t lba = cluster_to_lba(cluster);
+        for (uint8_t s = 0; s < sectors_per_cluster; s++) {
+            ata_read_sectors(lba + s, 1, sector);
+            struct fat16_dirent *entries = (struct fat16_dirent *)sector;
+            for (uint32_t e = 0; e < DIRENTS_PER_SECTOR; e++) {
+                if (entries[e].name[0] == 0x00 || entries[e].name[0] == 0xE5) {
+                    write_dirent(&entries[e], fat_name, attr, first_cluster, size);
+                    ata_write_sectors(lba + s, 1, sector);
+                    if (out_lba) {
+                        *out_lba = lba + s;
+                    }
+                    if (out_offset) {
+                        *out_offset = (uint16_t)(e * sizeof(struct fat16_dirent));
+                    }
+                    return 1;
+                }
+            }
+        }
+        last_cluster = cluster;
+        cluster = fat16_next_cluster(cluster);
+    }
+
+    uint16_t new_cluster = fat16_alloc_cluster();
+    if (new_cluster == 0) {
+        return -ENOSPC;
+    }
+    fat16_set_next_cluster(last_cluster, new_cluster);
+
+    uint8_t zero_sector[SECTOR_SIZE];
+    for (uint32_t i = 0; i < SECTOR_SIZE; i++) {
+        zero_sector[i] = 0;
+    }
+    uint32_t new_lba = cluster_to_lba(new_cluster);
+    for (uint8_t s = 0; s < sectors_per_cluster; s++) {
+        ata_write_sectors(new_lba + s, 1, zero_sector);
+    }
+
+    struct fat16_dirent *entries = (struct fat16_dirent *)zero_sector;
+    write_dirent(&entries[0], fat_name, attr, first_cluster, size);
+    ata_write_sectors(new_lba, 1, zero_sector);
+    if (out_lba) {
+        *out_lba = new_lba;
+    }
+    if (out_offset) {
+        *out_offset = 0;
+    }
+    return 1;
+}
+
+// Resolves the parent directory of `path` (its last '/'-separated
+// component is the new name being created; everything before it must
+// already exist and be a directory). On success (1), fills
+// *out_in_root/*out_dir_cluster/*out_fat_name (11 bytes). On failure,
+// returns -ENOENT (a parent component doesn't exist) or -ENOTDIR (a
+// parent component exists but isn't a directory).
+static int resolve_parent(const char *path, int *out_in_root, uint16_t *out_dir_cluster, uint8_t *out_fat_name) {
+    if (path[0] == '/') {
+        path++;
+    }
+    if (*path == '\0') {
+        return -ENOENT;
+    }
+
+    int in_root = 1;
+    uint16_t current_dir_cluster = 0;
+
+    for (;;) {
+        char component[13];
+        int i = 0;
+        while (path[i] != '\0' && path[i] != '/' && i < 12) {
+            component[i] = path[i];
+            i++;
+        }
+        component[i] = '\0';
+
+        int is_last = (path[i] != '/');
+        if (is_last) {
+            to_fat_name(component, out_fat_name);
+            *out_in_root = in_root;
+            *out_dir_cluster = current_dir_cluster;
+            return 1;
+        }
+
+        uint8_t fat_name[11];
+        to_fat_name(component, fat_name);
+        struct fat16_dirent entry;
+        int found = in_root ? find_in_root(fat_name, &entry, NULL, NULL)
+                             : find_in_directory_cluster(current_dir_cluster, fat_name, &entry, NULL, NULL);
+        if (!found) {
+            return -ENOENT;
+        }
+        if (!(entry.attr & FAT_ATTR_DIRECTORY)) {
+            return -ENOTDIR;
+        }
+        current_dir_cluster = entry.first_cluster_low;
+        in_root = 0;
+
+        path += i + 1; // skip the '/'
+    }
+}
+
+int fat16_create_file(const char *path, uint32_t *out_dir_lba, uint16_t *out_dir_offset) {
+    int in_root;
+    uint16_t dir_cluster;
+    uint8_t fat_name[11];
+    int result = resolve_parent(path, &in_root, &dir_cluster, fat_name);
+    if (result < 0) {
+        return result;
+    }
+
+    struct fat16_dirent existing;
+    int already_exists = in_root ? find_in_root(fat_name, &existing, NULL, NULL)
+                                   : find_in_directory_cluster(dir_cluster, fat_name, &existing, NULL, NULL);
+    if (already_exists) {
+        return -EEXIST;
+    }
+
+    int created = create_entry_in_directory(dir_cluster, in_root, fat_name, 0, 0, 0, out_dir_lba, out_dir_offset);
+    return created > 0 ? 0 : created;
+}
+
+int fat16_mkdir(const char *path) {
+    int in_root;
+    uint16_t dir_cluster;
+    uint8_t fat_name[11];
+    int result = resolve_parent(path, &in_root, &dir_cluster, fat_name);
+    if (result < 0) {
+        return result;
+    }
+
+    struct fat16_dirent existing;
+    int already_exists = in_root ? find_in_root(fat_name, &existing, NULL, NULL)
+                                   : find_in_directory_cluster(dir_cluster, fat_name, &existing, NULL, NULL);
+    if (already_exists) {
+        return -EEXIST;
+    }
+
+    uint16_t new_cluster = fat16_alloc_cluster();
+    if (new_cluster == 0) {
+        return -ENOSPC;
+    }
+
+    uint8_t zero_sector[SECTOR_SIZE];
+    for (uint32_t i = 0; i < SECTOR_SIZE; i++) {
+        zero_sector[i] = 0;
+    }
+    uint32_t lba = cluster_to_lba(new_cluster);
+    for (uint8_t s = 0; s < sectors_per_cluster; s++) {
+        ata_write_sectors(lba + s, 1, zero_sector);
+    }
+
+    uint32_t dir_lba;
+    uint16_t dir_offset;
+    int created = create_entry_in_directory(dir_cluster, in_root, fat_name, FAT_ATTR_DIRECTORY, new_cluster, 0, &dir_lba, &dir_offset);
+    if (created <= 0) {
+        fat16_free_chain(new_cluster);
+        return created;
+    }
+    return 0;
+}
+
+int fat16_delete_entry(const char *path) {
+    uint16_t cluster;
+    uint32_t size;
+    uint32_t dir_lba;
+    uint16_t dir_offset;
+    if (!fat16_find(path, &cluster, &size, &dir_lba, &dir_offset)) {
+        return -ENOENT;
+    }
+
+    uint8_t sector[SECTOR_SIZE];
+    ata_read_sectors(dir_lba, 1, sector);
+    struct fat16_dirent *entry = (struct fat16_dirent *)(sector + dir_offset);
+    if (entry->attr & FAT_ATTR_DIRECTORY) {
+        return -EISDIR;
+    }
+
+    if (cluster != 0) {
+        fat16_free_chain(cluster);
+    }
+    entry->name[0] = 0xE5;
+    ata_write_sectors(dir_lba, 1, sector);
+    return 0;
+}
+
+void fat16_update_entry_size(uint32_t dir_lba, uint16_t dir_offset, uint16_t first_cluster, uint32_t size) {
+    uint8_t sector[SECTOR_SIZE];
+    ata_read_sectors(dir_lba, 1, sector);
+    struct fat16_dirent *entry = (struct fat16_dirent *)(sector + dir_offset);
+    entry->first_cluster_low = first_cluster;
+    entry->file_size = size;
+    ata_write_sectors(dir_lba, 1, sector);
+}
+
+int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size,
+               uint32_t *out_dir_lba, uint16_t *out_dir_offset) {
     if (path[0] == '/') {
         path++;
     }
@@ -266,6 +528,8 @@ int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size) {
     struct fat16_dirent entry;
     int in_root = 1;
     uint16_t current_dir_cluster = 0;
+    uint32_t dir_lba = 0;
+    uint16_t dir_offset = 0;
 
     while (*path != '\0') {
         char component[13]; // 8 + '.' + 3 + NUL -- 8.3 only
@@ -279,8 +543,8 @@ int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size) {
         uint8_t fat_name[11];
         to_fat_name(component, fat_name);
 
-        int found = in_root ? find_in_root(fat_name, &entry)
-                             : find_in_directory_cluster(current_dir_cluster, fat_name, &entry);
+        int found = in_root ? find_in_root(fat_name, &entry, &dir_lba, &dir_offset)
+                             : find_in_directory_cluster(current_dir_cluster, fat_name, &entry, &dir_lba, &dir_offset);
         if (!found) {
             return 0;
         }
@@ -298,6 +562,12 @@ int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size) {
 
     *out_cluster = entry.first_cluster_low;
     *out_size = entry.file_size;
+    if (out_dir_lba) {
+        *out_dir_lba = dir_lba;
+    }
+    if (out_dir_offset) {
+        *out_dir_offset = dir_offset;
+    }
     return 1;
 }
 
@@ -319,7 +589,7 @@ void fat16_selftest(void) {
         return;
     }
 
-    if (!fat16_find("/HELLO.TXT", &cluster, &size)) {
+    if (!fat16_find("/HELLO.TXT", &cluster, &size, NULL, NULL)) {
         serial_write_string("[fat16] selftest FAILED: /HELLO.TXT not found\n");
         return;
     }
@@ -329,7 +599,7 @@ void fat16_selftest(void) {
         return;
     }
 
-    if (!fat16_find("/BIGFILE.TXT", &cluster, &size) || size != 8192) {
+    if (!fat16_find("/BIGFILE.TXT", &cluster, &size, NULL, NULL) || size != 8192) {
         serial_write_string("[fat16] selftest FAILED: /BIGFILE.TXT not found or wrong size\n");
         return;
     }
@@ -346,7 +616,7 @@ void fat16_selftest(void) {
         }
     }
 
-    if (!fat16_find("/DIR/NESTED.TXT", &cluster, &size)) {
+    if (!fat16_find("/DIR/NESTED.TXT", &cluster, &size, NULL, NULL)) {
         serial_write_string("[fat16] selftest FAILED: /DIR/NESTED.TXT not found\n");
         return;
     }
@@ -356,7 +626,7 @@ void fat16_selftest(void) {
         return;
     }
 
-    if (fat16_find("/DIR/MISSING.TXT", &cluster, &size)) {
+    if (fat16_find("/DIR/MISSING.TXT", &cluster, &size, NULL, NULL)) {
         serial_write_string("[fat16] selftest FAILED: /DIR/MISSING.TXT should not be found\n");
         return;
     }
@@ -404,6 +674,49 @@ void fat16_write_selftest(void) {
     fat16_free_chain(cluster);
     if (fat16_next_cluster(cluster) != 0x0000) {
         serial_write_string("[fat16] write selftest FAILED: freed cluster not zeroed in FAT\n");
+        return;
+    }
+
+    uint32_t size;
+    if (fat16_find("/NEWFILE.TXT", &cluster, &size, NULL, NULL)) {
+        serial_write_string("[fat16] write selftest FAILED: /NEWFILE.TXT already exists before creation\n");
+        return;
+    }
+    if (fat16_create_file("/NEWFILE.TXT", NULL, NULL) != 0) {
+        serial_write_string("[fat16] write selftest FAILED: fat16_create_file(/NEWFILE.TXT) failed\n");
+        return;
+    }
+    if (!fat16_find("/NEWFILE.TXT", &cluster, &size, NULL, NULL) || cluster != 0 || size != 0) {
+        serial_write_string("[fat16] write selftest FAILED: /NEWFILE.TXT not found or not empty after creation\n");
+        return;
+    }
+    if (fat16_create_file("/NEWFILE.TXT", NULL, NULL) != -EEXIST) {
+        serial_write_string("[fat16] write selftest FAILED: creating /NEWFILE.TXT again did not return -EEXIST\n");
+        return;
+    }
+    if (fat16_delete_entry("/NEWFILE.TXT") != 0) {
+        serial_write_string("[fat16] write selftest FAILED: fat16_delete_entry(/NEWFILE.TXT) failed\n");
+        return;
+    }
+    if (fat16_find("/NEWFILE.TXT", &cluster, &size, NULL, NULL)) {
+        serial_write_string("[fat16] write selftest FAILED: /NEWFILE.TXT still found after deletion\n");
+        return;
+    }
+    if (fat16_delete_entry("/NEWFILE.TXT") != -ENOENT) {
+        serial_write_string("[fat16] write selftest FAILED: deleting /NEWFILE.TXT again did not return -ENOENT\n");
+        return;
+    }
+
+    if (fat16_mkdir("/NEWDIR") != 0) {
+        serial_write_string("[fat16] write selftest FAILED: fat16_mkdir(/NEWDIR) failed\n");
+        return;
+    }
+    if (fat16_create_file("/NEWDIR/INNER.TXT", NULL, NULL) != 0) {
+        serial_write_string("[fat16] write selftest FAILED: fat16_create_file(/NEWDIR/INNER.TXT) failed\n");
+        return;
+    }
+    if (!fat16_find("/NEWDIR/INNER.TXT", &cluster, &size, NULL, NULL)) {
+        serial_write_string("[fat16] write selftest FAILED: /NEWDIR/INNER.TXT not found after creation\n");
         return;
     }
 
