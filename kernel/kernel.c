@@ -15,6 +15,31 @@
 #include "mm/heap.h"
 #include "ata.h"
 #include "fat16.h"
+#include "process.h"
+
+static void kernel_thread_a(void) {
+    for (int i = 0; i < 20; i++) {
+        serial_write_string("[thread-a] iteration=");
+        serial_write_hex64((uint64_t)i);
+        serial_write_string("\n");
+        schedule();
+    }
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
+}
+
+static void kernel_thread_b(void) {
+    for (int i = 0; i < 20; i++) {
+        serial_write_string("[thread-b] iteration=");
+        serial_write_hex64((uint64_t)i);
+        serial_write_string("\n");
+        schedule();
+    }
+    for (;;) {
+        __asm__ volatile ("hlt");
+    }
+}
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -70,9 +95,14 @@ void kmain(void *multiboot_info) {
     fat16_mount();
     fat16_selftest();
 
-    serial_write_string("NeoOS: interrupts enabled, entering idle loop\n");
+    process_init();
+    task_create_kernel_thread(kernel_thread_a);
+    task_create_kernel_thread(kernel_thread_b);
+
+    serial_write_string("NeoOS: interrupts enabled, starting scheduler\n");
     __asm__ volatile ("sti");
 
+    schedule(); // never returns in practice -- control passes permanently into the task system
     for (;;) {
         __asm__ volatile ("hlt");
     }
