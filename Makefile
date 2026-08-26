@@ -9,7 +9,7 @@ ISO_DIR := iso
 
 C_SOURCES := $(wildcard kernel/*.c)
 C_OBJECTS := $(patsubst kernel/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
-ASM_OBJECTS := $(BUILD_DIR)/boot.o
+ASM_OBJECTS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/gdt_flush.o
 
 .PHONY: all build iso run clean
 
@@ -20,6 +20,10 @@ build: $(BUILD_DIR)/kernel.elf
 $(BUILD_DIR)/boot.o: boot/boot.asm
 	mkdir -p $(BUILD_DIR)
 	$(AS) $(ASFLAGS) boot/boot.asm -o $(BUILD_DIR)/boot.o
+
+$(BUILD_DIR)/gdt_flush.o: kernel/gdt_flush.asm
+	mkdir -p $(BUILD_DIR)
+	$(AS) $(ASFLAGS) kernel/gdt_flush.asm -o $(BUILD_DIR)/gdt_flush.o
 
 $(BUILD_DIR)/%.o: kernel/%.c
 	mkdir -p $(BUILD_DIR)
