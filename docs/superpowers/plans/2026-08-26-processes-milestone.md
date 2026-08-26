@@ -22,6 +22,9 @@
 - **The timer IRQ's `lapic_send_eoi()` must run *before* calling anything that might `schedule()` away, not after** (found necessary in Task 4): `timer_handler()` can switch to a different task via a `ret` that doesn't "return" here in the traditional sense until the *preempted* task is itself resumed later — EOI'ing after the call would defer it indefinitely, and the LAPIC withholds all further timer interrupts of that vector until it arrives, deadlocking preemption entirely after exactly one switch. `isr.c`'s `VECTOR_TIMER` case sends EOI first.
 - **Round-robin fairness only guarantees turn *order*, not equal work done per turn.** Two tasks running the identical tight busy-loop can complete very different amounts of work within their nominally-equal time slices under QEMU's TCG emulation (observed: one consistently completing exactly one iteration per turn, the other tens) — this is JIT/translation-cache behavior in the emulator, not a scheduler defect; verified separately via direct tick-count instrumentation that every `schedule()` call fires at a precise 5-tick boundary with correct alternation.
 - **No syscall argument/pointer validation** (tracked security gap, deferred — see the spec's Out of Scope). **No stack reclamation on process exit** — a reaped task's kernel/user stack frames are never freed back to the buddy allocator in this milestone; an accepted limitation given the small, finite number of test processes involved.
+- **User code must never be linked under PML4 index 0** (found necessary in Task 5, not anticipated when this plan was written): every process's `pml4[0]` is a direct *copy* of the kernel's own `p4_table[0]`, which `boot.asm` built with flags `PRESENT|WRITABLE` only — no `PAGE_USER` — since it was only ever meant for kernel-internal low-identity-map use (`pmm.c`/`paging.c` dereferencing physical addresses directly). PML4-level permissions gate everything beneath them, so *any* address under index 0 (the first 512GiB) is permanently inaccessible to user mode no matter what the PDPT/PD/PT entries beneath it say — confirmed via a direct page-table walk showing a correctly-built leaf PTE (`PRESENT|WRITABLE|USER`, no NX) that still faulted on execution. `userland/user.ld` links at `0x200000000000` (PML4 index 64) for exactly this reason — any address outside indices 0, 256, and 511 works, since `paging_map_into`'s `table_entry` creates those levels fresh with proper `PAGE_USER` flags via its own `default_flags`.
+- **Userland `CFLAGS` must disable SSE/MMX exactly like the kernel's own `CFLAGS` does** (found necessary in Task 5): without `-mno-sse -mno-mmx -mno-sse2`, GCC compiles even trivial local-array initialization into `movdqa`/`movaps`, and nothing in this kernel ever initializes FPU/SSE CPU state (`CR0.EM`/`MP`, `CR4.OSFXSR`) — so those instructions raise `#UD` (Invalid Opcode) the moment they execute. `USER_CFLAGS` in the `Makefile` carries the same three flags as the kernel's `CFLAGS`.
+- **`pmm_selftest` (milestone 3) needed a one-line relaxation** (found necessary in Task 5, though the affected file belongs to an earlier milestone): it originally asserted that freeing an order-3 block's two order-2 halves coalesces back to *exactly* order 3. As the kernel image grew across this milestone's tasks, `pmm_alloc(3)` started needing to split a larger free block (order 5) to satisfy the request — and since nothing else had allocated memory yet at that point in boot, the split-off neighboring halves were legitimately still free, so coalescing correctly continued merging past order 3 up to order 5. This is the buddy allocator behaving exactly as designed, not a bug — the test's assertion was too strict (`== 3` instead of `>= 3`). `pmm_alloc`/`pmm_free` themselves needed no changes.
 - Verification throughout uses headless QEMU exactly as in prior milestones: `-serial file:<path>` for grep-able diagnostics, `-boot order=d` whenever the FAT16 disk is attached (milestone 4's fix), `-no-reboot -no-shutdown -d int,guest_errors -D <path>` to catch faults as clean logs instead of silent reboots.
 
 ---
@@ -134,9 +137,13 @@ git commit -m "Extend GDT with user-mode segments for SYSCALL/SYSRET"
 ```
 ENTRY(_start)
 
+/* PML4 index 64 (0x0000200000000000) -- deliberately NOT under PML4
+   index 0, 256, or 511 (the three entries every process's PML4 shares
+   with the kernel's own p4_table -- see this plan's Global Constraints
+   note on why index 0 specifically can never host user code). */
 SECTIONS
 {
-    . = 0x400000;
+    . = 0x200000000000;
 
     .text ALIGN(4K) : { *(.text .text.*) }
     .rodata ALIGN(4K) : { *(.rodata .rodata.*) }
@@ -235,7 +242,7 @@ void _start(void) {
 ```makefile
 USERLAND_DIR := userland
 USERLAND_BUILD := $(BUILD_DIR)/userland
-USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
+USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
 
 $(USERLAND_BUILD)/SPIN.ELF: $(USERLAND_DIR)/spin.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
 	mkdir -p $(USERLAND_BUILD)
@@ -725,8 +732,10 @@ git commit -m "Wire scheduler into timer IRQ for preemptive multitasking"
 - Modify: `kernel/process.h`, `kernel/process.c` (add `spawn`, `task_exit`; `schedule` gains a `CR3` reload)
 - Create: `kernel/syscall.h`, `kernel/syscall.c`
 - Create: `kernel/syscall_entry.asm`
-- Modify: `Makefile` (add `syscall_entry.o` to `ASM_OBJECTS`)
+- Modify: `Makefile` (add `syscall_entry.o` to `ASM_OBJECTS`; `USER_CFLAGS` gains `-mno-mmx -mno-sse -mno-sse2` -- see Global Constraints)
 - Modify: `kernel/kernel.c` (remove the Task 3/4 kernel-thread test; wire in `syscall_init` and `spawn("/BIN/SPIN.ELF")`)
+- Modify: `userland/user.ld` (link address moves to `0x200000000000`, PML4 index 64 -- see Global Constraints)
+- Modify: `kernel/mm/pmm.c` (relax `pmm_selftest`'s coalescing assertion from `== 3` to `>= 3` -- see Global Constraints; `pmm_alloc`/`pmm_free` themselves are unchanged)
 
 **Interfaces:**
 - Consumes: `pmm_alloc` (milestone 3), `fat16_find`/`fat16_read_file` (milestone 4), `kmalloc`/`kfree` (milestone 3), `GDT_USER_CODE32_SELECTOR`/`GDT_KERNEL_CODE_SELECTOR` (Task 1), `schedule`/`struct task` (Task 3).

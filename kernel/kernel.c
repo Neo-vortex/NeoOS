@@ -16,32 +16,7 @@
 #include "ata.h"
 #include "fat16.h"
 #include "process.h"
-
-static void kernel_thread_a(void) {
-    for (int i = 0; i < 200; i++) {
-        serial_write_string("[thread-a] iteration=");
-        serial_write_hex64((uint64_t)i);
-        serial_write_string("\n");
-        for (volatile uint32_t spin = 0; spin < 5000000; spin++) {
-        }
-    }
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
-}
-
-static void kernel_thread_b(void) {
-    for (int i = 0; i < 200; i++) {
-        serial_write_string("[thread-b] iteration=");
-        serial_write_hex64((uint64_t)i);
-        serial_write_string("\n");
-        for (volatile uint32_t spin = 0; spin < 5000000; spin++) {
-        }
-    }
-    for (;;) {
-        __asm__ volatile ("hlt");
-    }
-}
+#include "syscall.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -98,8 +73,12 @@ void kmain(void *multiboot_info) {
     fat16_selftest();
 
     process_init();
-    task_create_kernel_thread(kernel_thread_a);
-    task_create_kernel_thread(kernel_thread_b);
+    syscall_init();
+
+    struct task *spin_task = spawn("/BIN/SPIN.ELF");
+    if (!spin_task) {
+        serial_write_string("[process] spawn FAILED for /BIN/SPIN.ELF\n");
+    }
 
     serial_write_string("NeoOS: interrupts enabled, starting scheduler\n");
     __asm__ volatile ("sti");

@@ -35,4 +35,15 @@ int paging_map(uint64_t virt, uint64_t phys, uint64_t flags);
 void paging_unmap(uint64_t virt);
 uint64_t paging_translate(uint64_t virt); // returns the mapped physical address, or 0 if unmapped
 
+// Allocates a fresh, zeroed page-table frame -- suitable as a new
+// PML4 for a process's own address space. Caller must copy in
+// whatever shared kernel entries it needs (see process.c's spawn()).
+uint64_t paging_alloc_pml4(void);
+
+// Like paging_map, but targets an arbitrary PML4 (a phys_to_virt
+// pointer, not necessarily the one currently loaded in CR3) instead
+// of the kernel's own live p4_table -- used by spawn() to build a new
+// process's address space before it's ever loaded into CR3.
+int paging_map_into(uint64_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags);
+
 #endif

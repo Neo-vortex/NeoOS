@@ -39,15 +39,23 @@ static uint64_t *table_entry(uint64_t *table, unsigned index, int create, uint64
     return (uint64_t *)(uintptr_t)next_phys;
 }
 
-int paging_map(uint64_t virt, uint64_t phys, uint64_t flags) {
+uint64_t paging_alloc_pml4(void) {
+    return alloc_table_frame();
+}
+
+int paging_map_into(uint64_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags) {
     uint64_t default_flags = PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
-    uint64_t *pdpt = table_entry(p4_table, PML4_INDEX(virt), 1, default_flags);
+    uint64_t *pdpt = table_entry(pml4, PML4_INDEX(virt), 1, default_flags);
     uint64_t *pd   = table_entry(pdpt, PDPT_INDEX(virt), 1, default_flags);
     uint64_t *pt   = table_entry(pd, PD_INDEX(virt), 1, default_flags);
 
     pt[PT_INDEX(virt)] = (phys & PAGE_ADDR_MASK) | flags | PAGE_PRESENT;
     __asm__ volatile ("invlpg (%0)" :: "r"(virt) : "memory");
     return 0;
+}
+
+int paging_map(uint64_t virt, uint64_t phys, uint64_t flags) {
+    return paging_map_into(p4_table, virt, phys, flags);
 }
 
 void paging_unmap(uint64_t virt) {

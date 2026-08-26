@@ -30,4 +30,10 @@ struct task *task_create_kernel_thread(void (*entry)(void));
 void schedule(void);
 struct task *current_task(void);
 
+#define USER_STACK_PAGES 4
+#define USER_STACK_TOP 0x0000700000000000ULL
+
+struct task *spawn(const char *path);
+void task_exit(int code);
+
 #endif

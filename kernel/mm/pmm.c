@@ -214,13 +214,18 @@ void pmm_selftest(void) {
 
     // Free the two order-2 halves separately -- they are buddies of each
     // other (block is 8-frame-aligned, hence also 4-frame-aligned) and
-    // must recombine into a single order-3 free block.
+    // must recombine into at least an order-3 free block. It's legitimate
+    // for coalescing to continue even further than order 3 if pmm_alloc(3)
+    // itself had to split a larger block to satisfy the request (its
+    // other split-off halves are still free neighbors at this point in
+    // boot, before anything else has allocated memory) -- so this checks
+    // "at least 3", not "exactly 3".
     uint64_t half_size = PMM_FRAME_SIZE << 2;
     pmm_free(block, 2);
     pmm_free(block + half_size, 2);
 
-    if (frame_order[phys_to_frame(block)] != 3) {
-        serial_write_string("[pmm] selftest FAILED: buddies did not coalesce back to order 3\n");
+    if (frame_order[phys_to_frame(block)] < 3 || frame_order[phys_to_frame(block)] == ORDER_NONE) {
+        serial_write_string("[pmm] selftest FAILED: buddies did not coalesce back to at least order 3\n");
         return;
     }
     if (total_free_frames != before) {

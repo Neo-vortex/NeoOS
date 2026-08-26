@@ -56,3 +56,27 @@ kernel_thread_entry_trampoline:
 .hang:        ; entry should never return, but halt safely if it does
     hlt
     jmp .hang
+
+; Bootstraps a brand-new task's very first entry into ring 3. Reached
+; via a bare `ret` out of context_switch (see spawn()'s initial stack
+; setup in process.c) -- never called directly. The two values it
+; pops were planted on the stack by spawn(), right below the
+; trampoline's own "return address" slot.
+global kernel_thread_trampoline
+
+kernel_thread_trampoline:
+    pop rdi   ; entry_rip, planted by spawn()
+    pop rsi   ; user_rsp, planted by spawn()
+
+    mov ax, 0x33        ; user data selector (RPL3)
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+
+    push 0x33           ; SS
+    push rsi            ; RSP (user stack)
+    push 0x202          ; RFLAGS: reserved bit 1 set, IF (bit 9) set
+    push 0x3B           ; CS (user code64, RPL3)
+    push rdi            ; RIP (entry point)
+    iretq

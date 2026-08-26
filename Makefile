@@ -9,7 +9,7 @@ ISO_DIR := iso
 
 C_SOURCES := $(wildcard kernel/*.c) $(wildcard kernel/mm/*.c)
 C_OBJECTS := $(patsubst kernel/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
-ASM_OBJECTS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/gdt_flush.o $(BUILD_DIR)/isr_stubs.o $(BUILD_DIR)/context_switch.o
+ASM_OBJECTS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/gdt_flush.o $(BUILD_DIR)/isr_stubs.o $(BUILD_DIR)/context_switch.o $(BUILD_DIR)/syscall_entry.o
 
 .PHONY: all build iso run clean disk-image
 
@@ -33,6 +33,10 @@ $(BUILD_DIR)/context_switch.o: kernel/context_switch.asm
 	mkdir -p $(BUILD_DIR)
 	$(AS) $(ASFLAGS) kernel/context_switch.asm -o $(BUILD_DIR)/context_switch.o
 
+$(BUILD_DIR)/syscall_entry.o: kernel/syscall_entry.asm
+	mkdir -p $(BUILD_DIR)
+	$(AS) $(ASFLAGS) kernel/syscall_entry.asm -o $(BUILD_DIR)/syscall_entry.o
+
 $(BUILD_DIR)/%.o: kernel/%.c
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -51,7 +55,7 @@ DISK_SRC := $(BUILD_DIR)/disk-src
 
 USERLAND_DIR := userland
 USERLAND_BUILD := $(BUILD_DIR)/userland
-USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
+USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
 
 $(USERLAND_BUILD)/SPIN.ELF: $(USERLAND_DIR)/spin.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
 	mkdir -p $(USERLAND_BUILD)

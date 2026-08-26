@@ -31,6 +31,15 @@ void serial_write_string(const char *str) {
     }
 }
 
+void serial_write_string_n(const char *str, uint64_t len) {
+    for (uint64_t i = 0; i < len; i++) {
+        if (str[i] == '\n') {
+            serial_putc('\r');
+        }
+        serial_putc(str[i]);
+    }
+}
+
 void serial_write_hex64(uint64_t value) {
     static const char hex_digits[] = "0123456789abcdef";
     serial_write_string("0x");
