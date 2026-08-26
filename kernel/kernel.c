@@ -3,6 +3,7 @@
 #include "serial.h"
 #include "tss.h"
 #include "gdt.h"
+#include "idt.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -16,6 +17,9 @@ void kmain(void *multiboot_info) {
     tss_init();
     gdt_init();
     serial_write_string("[gdt] loaded, tss_selector=0x18\n");
+
+    idt_init();
+    serial_write_string("[idt] loaded\n");
 
     for (;;) {
         __asm__ volatile ("hlt");
