@@ -3,6 +3,7 @@
 #include "vga.h"
 #include "timer.h"
 #include "lapic.h"
+#include "keyboard.h"
 
 static const char *exception_names[32] = {
     "Divide Error", "Debug", "NMI", "Breakpoint", "Overflow",
@@ -70,6 +71,12 @@ void isr_handler(struct registers *regs) {
 
     if (regs->vector_number == VECTOR_TIMER) {
         timer_handler();
+        lapic_send_eoi();
+        return;
+    }
+
+    if (regs->vector_number == VECTOR_KEYBOARD) {
+        keyboard_handler();
         lapic_send_eoi();
         return;
     }

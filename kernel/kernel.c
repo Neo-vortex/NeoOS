@@ -9,6 +9,7 @@
 #include "lapic.h"
 #include "ioapic.h"
 #include "timer.h"
+#include "keyboard.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -40,6 +41,13 @@ void kmain(void *multiboot_info) {
     serial_write_string("[ioapic] initialized\n");
 
     timer_init();
+
+    uint8_t keyboard_pin = acpi.irq1_gsi - acpi.ioapic_gsi_base;
+    ioapic_set_redirection(keyboard_pin, VECTOR_KEYBOARD, acpi.irq1_polarity,
+                            acpi.irq1_trigger, (uint8_t)lapic_get_id());
+    serial_write_string("[ioapic] keyboard routed: gsi=");
+    serial_write_hex64(acpi.irq1_gsi);
+    serial_write_string(" vector=0x21\n");
 
     for (;;) {
         __asm__ volatile ("hlt");
