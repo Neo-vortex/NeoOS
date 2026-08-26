@@ -79,6 +79,9 @@ void kmain(void *multiboot_info) {
     if (!parent_task) {
         serial_write_string("[process] spawn FAILED for /BIN/PARENT.ELF\n");
     }
+    spawn("/BIN/LOOPER.ELF");
+    spawn("/BIN/LOOPER.ELF");
+    spawn("/BIN/YIELDER.ELF");
 
     serial_write_string("NeoOS: interrupts enabled, starting scheduler\n");
     __asm__ volatile ("sti");
