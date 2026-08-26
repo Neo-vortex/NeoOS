@@ -1,7 +1,7 @@
 CC := $(HOME)/opt/cross-x86_64-elf/bin/x86_64-elf-gcc
 AS := nasm
 
-CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -Wall -Wextra -std=gnu11 -O2 -Ikernel
+CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=kernel -Wall -Wextra -std=gnu11 -O2 -Ikernel
 ASFLAGS := -f elf64
 
 BUILD_DIR := build

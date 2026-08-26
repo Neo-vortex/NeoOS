@@ -15,6 +15,9 @@
 void kmain(void *multiboot_info) {
     serial_init();
     serial_write_string("NeoOS booting (milestone 3: memory management)\n");
+    serial_write_string("[boot] kmain address=");
+    serial_write_hex64((uint64_t)(uintptr_t)kmain);
+    serial_write_string("\n");
 
     pmm_init(multiboot_info);
     pmm_selftest();

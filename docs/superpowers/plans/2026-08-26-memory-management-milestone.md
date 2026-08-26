@@ -21,6 +21,8 @@
 - **Physical frame allocator cap:** the buddy allocator's metadata is sized for at most 4GiB of physical RAM (`PMM_MAX_FRAMES`, in `kernel/mm/pmm.c`). QEMU's default RAM (128MiB, no `-m` flag is passed by this project's `make run`) is far under this; RAM reported above 4GiB is silently not tracked. This is a known, acceptable limit for this milestone, not a bug.
 - Buddy orders run `0..PMM_MAX_ORDER` (`PMM_MAX_ORDER = 10`, so the largest single block is `4KiB * 2^10 = 4MiB`).
 - `Makefile` gains `-Ikernel` in `CFLAGS` (so files under `kernel/mm/` can `#include "serial.h"` etc. without a relative `../` path) and its object-file rule creates whatever subdirectory the target needs (`kernel/mm/*.c` compiles to `build/mm/*.o`).
+- **`CFLAGS` also gains `-mcmodel=kernel`** (found necessary in Task 2, not anticipated when this plan was written): once the C kernel links at `KERNEL_VIRT_BASE` (`0xFFFFFFFF80000000`), GCC's default code model — which assumes all symbols fit within a 32-bit signed range near address 0 — produces `R_X86_64_32` relocations that overflow at link time (`relocation truncated to fit`) for every static/string-literal reference. `-mcmodel=kernel` tells GCC the code and data live in the top 2GiB of the address space, matching our link address exactly.
+- **`kernel_phys_start` (in `linker.ld`) must bracket the *entire* image, boot block included** (found necessary in Task 2): it's tempting to set it right at the high-half C kernel's start (immediately after the low `.boot.*` block), but `boot.asm`'s own live `p4_table`/`p3_table`/`p3_table_high`/`p2_tables` and boot stack live in that low `.boot.bss` block — if `pmm_init` doesn't exclude them too, the buddy allocator hands out the running page tables' own memory as free RAM, and the first write into it (e.g. `pmm_selftest`'s alloc/free) corrupts the live mapping and triple-faults. Since the low and high blocks are physically contiguous (the high block's `AT()` picks up exactly where the low block ends), a single `kernel_phys_start = .;` placed right after `. = 1M;` (before `.multiboot`) correctly covers both.
 - Verification throughout uses headless QEMU exactly as in milestone 2: `-serial file:<path>` for grep-able diagnostics, `screendump` for VGA, `sendkey` for keyboard simulation.
 
 ---
@@ -347,7 +349,7 @@ void pmm_selftest(void) {
 - [ ] **Step 3: Extend the Makefile for `kernel/mm/`**
 
 ```makefile
-CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -Wall -Wextra -std=gnu11 -O2 -Ikernel
+CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=kernel -Wall -Wextra -std=gnu11 -O2 -Ikernel
 ASFLAGS := -f elf64
 
 BUILD_DIR := build
@@ -624,6 +626,16 @@ SECTIONS
        exists, so it cannot reference high addresses. */
     . = 1M;
 
+    /* kernel_phys_start covers the WHOLE image, boot block included --
+       pmm.c uses this to exclude the kernel's physical footprint from
+       its free lists, and that must include boot.asm's live
+       p4_table/p3_table/p2_tables and boot stack (all in .boot.bss
+       below), not just the high-half C kernel. The low and high
+       blocks are physically contiguous (the high block's AT() picks
+       up right where the low block ends), so a single range here
+       covers both. */
+    kernel_phys_start = .;
+
     .multiboot ALIGN(8) :
     {
         *(.multiboot_header)
@@ -652,7 +664,6 @@ SECTIONS
        set_up_page_tables), so `call kmain` lands correctly the moment
        paging is enabled -- no separate trampoline needed. */
     . = ALIGN(4K);
-    kernel_phys_start = .;
     . += KERNEL_VIRT_BASE;
 
     .text ALIGN(4K) : AT(ADDR(.text) - KERNEL_VIRT_BASE)

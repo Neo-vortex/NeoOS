@@ -17,11 +17,13 @@ header_start:
     dd 8    ; size
 header_end:
 
-section .bss
+section .boot.bss
 align 4096
 p4_table:
     resb 4096
 p3_table:
+    resb 4096
+p3_table_high:      ; PDPT for the kernel's higher-half alias (PML4[511])
     resb 4096
 p2_tables:              ; 4 page directories (2MiB pages each) = 4GiB identity-mapped total
     resb 4096 * 4
@@ -30,9 +32,10 @@ stack_bottom:
     resb 16384
 stack_top:
 
-section .text
+section .boot.text
 [bits 32]
 global _start
+global p4_table      ; paging.c (milestone 3, Task 3) extends this same live table
 extern kmain
 
 _start:
@@ -85,14 +88,31 @@ check_long_mode_supported:
     hlt
     jmp .hang2
 
-; Identity-maps the first 4GiB using 2MiB pages: PML4[0] -> PDPT[0..3] ->
-; 512 PD entries each. 4GiB (not 1GiB) is needed because the Local APIC
-; (0xFEE00000) and IOAPIC (0xFEC00000) MMIO regions sit in the standard
-; sub-4GiB MMIO hole, well above the first 1GiB.
+; Identity-maps the first 4GiB using 2MiB pages (PML4[0] -> p3_table[0..3]
+; -> p2_tables, 512 PD entries each); 4GiB (not 1GiB) is needed because
+; the Local APIC (0xFEE00000) and IOAPIC (0xFEC00000) MMIO regions sit
+; in the standard sub-4GiB MMIO hole, well above the first 1GiB.
+;
+; Also aliases the SAME physical PD tables at PML4[511]/PDPT[510] --
+; exactly the 1GiB virtual window starting at KERNEL_VIRT_BASE
+; (0xFFFFFFFF80000000) where the C kernel is linked (see linker.ld).
+; Reusing p2_tables for both means no extra PD tables are needed: a
+; 2MiB page's physical address doesn't care which PML4/PDPT path led
+; to it. This is what lets `call kmain` (in long_mode_start, below)
+; land correctly the moment paging is enabled, with no C code needing
+; to run at two different addresses across the transition.
 set_up_page_tables:
     mov eax, p3_table
     or eax, 0b11
     mov [p4_table], eax
+
+    mov eax, p3_table_high
+    or eax, 0b11
+    mov [p4_table + 511 * 8], eax
+
+    mov eax, p2_tables
+    or eax, 0b11
+    mov [p3_table_high + 510 * 8], eax
 
     mov ecx, 0
 .map_p3_table:
@@ -137,7 +157,7 @@ enable_paging:
     mov cr0, eax
     ret
 
-section .rodata
+section .boot.rodata
 gdt64:
     dq 0
 .code: equ $ - gdt64
@@ -148,7 +168,7 @@ gdt64:
     dw $ - gdt64 - 1
     dq gdt64
 
-section .text
+section .boot.text
 [bits 64]
 long_mode_start:
     mov edi, edi
@@ -159,7 +179,12 @@ long_mode_start:
     mov fs, ax
     mov gs, ax
 
-    call kmain
+    ; kmain is linked in the higher half (KERNEL_VIRT_BASE, see
+    ; linker.ld). A plain `call kmain` would assemble as a rel32 near
+    ; call, which cannot reach across a gap this large -- load the
+    ; full 64-bit address and call indirectly instead.
+    mov rax, kmain
+    call rax
 
     cli
 .hang:
