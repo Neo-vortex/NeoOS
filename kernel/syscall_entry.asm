@@ -34,6 +34,20 @@ syscall_entry:
     push r13
     push r14
     push r15
+    ; The register shuffle below and syscall_dispatch itself (an
+    ; ordinary C function, free to clobber any SysV caller-saved
+    ; register) will destroy the original argument registers. The only
+    ; register a syscall is supposed to change from the caller's
+    ; perspective is RAX (the return value) -- every userland syscall
+    ; wrapper's clobber list (rcx, r11 only) relies on that convention,
+    ; so save and restore the rest here rather than changing every
+    ; wrapper's clobber list to document a leakier contract.
+    push rdi
+    push rsi
+    push rdx
+    push r10
+    push r8
+    push r9
 
     ; Safe now that we're on the kernel stack with everything saved --
     ; keeps the system preemptible during (potentially long) syscall
@@ -43,7 +57,10 @@ syscall_entry:
 
     ; Reorder incoming syscall args (rax=num, rdi=a1, rsi=a2, rdx=a3,
     ; r10=a4) into SysV call registers for syscall_dispatch (rdi=num,
-    ; rsi=a1, rdx=a2, rcx=a3, r8=a4).
+    ; rsi=a1, rdx=a2, rcx=a3, r8=a4). Safe to clobber rdi/rsi/rdx/r10
+    ; here despite just having pushed their original values above --
+    ; those pushes preserved copies on the stack; the registers
+    ; themselves are free to reuse until the pops below.
     mov r9, rax
     mov rax, r10
     mov r10, rdx
@@ -56,6 +73,12 @@ syscall_entry:
     call syscall_dispatch
 
     cli   ; mask again before restoring user state, mirroring SFMASK's entry guarantee
+    pop r9
+    pop r8
+    pop r10
+    pop rdx
+    pop rsi
+    pop rdi
     pop r15
     pop r14
     pop r13

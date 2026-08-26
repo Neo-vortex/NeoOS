@@ -55,13 +55,21 @@ DISK_SRC := $(BUILD_DIR)/disk-src
 
 USERLAND_DIR := userland
 USERLAND_BUILD := $(BUILD_DIR)/userland
-USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
+USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=large -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
 
 $(USERLAND_BUILD)/SPIN.ELF: $(USERLAND_DIR)/spin.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
 	mkdir -p $(USERLAND_BUILD)
 	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(USERLAND_DIR)/spin.c
 
-$(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF
+$(USERLAND_BUILD)/CHILD.ELF: $(USERLAND_DIR)/child.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
+	mkdir -p $(USERLAND_BUILD)
+	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(USERLAND_DIR)/child.c
+
+$(USERLAND_BUILD)/PARENT.ELF: $(USERLAND_DIR)/parent.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
+	mkdir -p $(USERLAND_BUILD)
+	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(USERLAND_DIR)/parent.c
+
+$(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_BUILD)/PARENT.ELF
 	mkdir -p $(DISK_SRC)/DIR
 	printf 'Hello from NeoOS FAT16!\n' > $(DISK_SRC)/HELLO.TXT
 	head -c 8192 /dev/zero | tr '\0' 'N' > $(DISK_SRC)/BIGFILE.TXT
@@ -74,6 +82,8 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF
 	mcopy -i $(DISK_IMG) $(DISK_SRC)/DIR/NESTED.TXT ::DIR/NESTED.TXT
 	mmd -i $(DISK_IMG) ::BIN
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/SPIN.ELF ::BIN/SPIN.ELF
+	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/CHILD.ELF ::BIN/CHILD.ELF
+	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/PARENT.ELF ::BIN/PARENT.ELF
 
 disk-image: $(DISK_IMG)
 

@@ -16,6 +16,7 @@ struct task {
     uint64_t pml4_phys; // 0 = share the kernel's own address space (kernel-mode-only task)
     int parent_pid;
     int exit_code;
+    int waiting_for_pid; // 0 = not blocked in wait(); else the PID this task is waiting on
     struct task *next; // ready-queue link
 };
 
@@ -35,5 +36,6 @@ struct task *current_task(void);
 
 struct task *spawn(const char *path);
 void task_exit(int code);
+int64_t wait_for_pid(int pid);
 
 #endif

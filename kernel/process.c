@@ -85,6 +85,7 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     t->pml4_phys = 0;
     t->parent_pid = 0;
     t->exit_code = 0;
+    t->waiting_for_pid = 0;
     t->next = 0;
 
     enqueue_ready(t);
@@ -186,6 +187,7 @@ struct task *spawn(const char *path) {
     t->pml4_phys = pml4_phys;
     t->parent_pid = current ? current->pid : 0;
     t->exit_code = 0;
+    t->waiting_for_pid = 0;
     t->next = 0;
 
     enqueue_ready(t);
@@ -200,8 +202,41 @@ void task_exit(int code) {
     serial_write_string(" code=");
     serial_write_hex64((uint64_t)(int64_t)code);
     serial_write_string("\n");
+
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (tasks[i].state == TASK_BLOCKED && tasks[i].waiting_for_pid == current->pid) {
+            tasks[i].state = TASK_READY;
+            tasks[i].waiting_for_pid = 0;
+            enqueue_ready(&tasks[i]);
+        }
+    }
+
     schedule();
     for (;;) {
         __asm__ volatile ("hlt"); // unreachable: schedule() never resumes a ZOMBIE task
     }
+}
+
+int64_t wait_for_pid(int pid) {
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (tasks[i].pid == pid && tasks[i].state == TASK_ZOMBIE) {
+            int code = tasks[i].exit_code;
+            tasks[i].state = TASK_UNUSED;
+            return code;
+        }
+    }
+
+    current->waiting_for_pid = pid;
+    current->state = TASK_BLOCKED;
+    schedule();
+
+    // Resumed here once task_exit() (for our target pid) re-enqueued us.
+    for (int i = 0; i < MAX_TASKS; i++) {
+        if (tasks[i].pid == pid && tasks[i].state == TASK_ZOMBIE) {
+            int code = tasks[i].exit_code;
+            tasks[i].state = TASK_UNUSED;
+            return code;
+        }
+    }
+    return -1; // shouldn't happen given task_exit's wake-up guarantee
 }

@@ -45,8 +45,27 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             return a2;
         case SYS_GETPID:
             return current_task()->pid;
+        case SYS_YIELD:
+            schedule();
+            return 0;
+        case SYS_SPAWN: {
+            char path_buf[64];
+            uint64_t len = (uint64_t)a2;
+            if (len > sizeof(path_buf) - 1) {
+                len = sizeof(path_buf) - 1;
+            }
+            const char *user_path = (const char *)(uintptr_t)a1;
+            for (uint64_t i = 0; i < len; i++) {
+                path_buf[i] = user_path[i];
+            }
+            path_buf[len] = '\0';
+            struct task *child = spawn(path_buf);
+            return child ? child->pid : -1;
+        }
+        case SYS_WAIT:
+            return wait_for_pid((int)a1);
         default:
-            serial_write_string("[syscall] unknown or not-yet-implemented syscall number\n");
+            serial_write_string("[syscall] unknown syscall number\n");
             return -1;
     }
 }

@@ -65,4 +65,29 @@ static inline uint64_t user_strlen(const char *s) {
     return n;
 }
 
+static inline void print_num(int64_t n) {
+    char buf[24];
+    int i = 0;
+    int negative = 0;
+    if (n < 0) {
+        negative = 1;
+        n = -n;
+    }
+    if (n == 0) {
+        buf[i++] = '0';
+    }
+    while (n > 0) {
+        buf[i++] = (char)('0' + (n % 10));
+        n /= 10;
+    }
+    if (negative) {
+        buf[i++] = '-';
+    }
+    char out[24];
+    for (int j = 0; j < i; j++) {
+        out[j] = buf[i - 1 - j];
+    }
+    sys_write(out, (uint64_t)i);
+}
+
 #endif

@@ -75,9 +75,9 @@ void kmain(void *multiboot_info) {
     process_init();
     syscall_init();
 
-    struct task *spin_task = spawn("/BIN/SPIN.ELF");
-    if (!spin_task) {
-        serial_write_string("[process] spawn FAILED for /BIN/SPIN.ELF\n");
+    struct task *parent_task = spawn("/BIN/PARENT.ELF");
+    if (!parent_task) {
+        serial_write_string("[process] spawn FAILED for /BIN/PARENT.ELF\n");
     }
 
     serial_write_string("NeoOS: interrupts enabled, starting scheduler\n");
