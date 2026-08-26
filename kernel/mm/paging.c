@@ -15,9 +15,19 @@
 
 extern uint64_t p4_table[512]; // boot.asm's live PML4 -- see boot/boot.asm
 
+// paging_init() calls alloc_table_frame() to build the physmap itself,
+// before that physmap exists -- phys_to_virt() can't be used yet at
+// that point, only the identity map boot.asm already set up (valid
+// for whatever low physical range pmm hands out this early). Once the
+// physmap is installed, every later caller (paging_alloc_pml4(),
+// table_entry()) must use it instead: the identity map's own coverage
+// isn't guaranteed to extend to frames pmm hands out much later, once
+// process page tables are being built.
+static int physmap_installed = 0;
+
 static uint64_t alloc_table_frame(void) {
     uint64_t phys = pmm_alloc(0);
-    uint64_t *table = (uint64_t *)(uintptr_t)phys;
+    uint64_t *table = physmap_installed ? (uint64_t *)phys_to_virt(phys) : (uint64_t *)(uintptr_t)phys;
     for (int i = 0; i < 512; i++) {
         table[i] = 0;
     }
@@ -36,7 +46,7 @@ static uint64_t *table_entry(uint64_t *table, unsigned index, int create, uint64
         table[index] = new_table_phys | create_flags;
     }
     uint64_t next_phys = table[index] & PAGE_ADDR_MASK;
-    return (uint64_t *)(uintptr_t)next_phys;
+    return (uint64_t *)phys_to_virt(next_phys);
 }
 
 uint64_t paging_alloc_pml4(void) {
@@ -97,6 +107,7 @@ void paging_init(void) {
     }
 
     p4_table[PHYSMAP_PML4_INDEX] = pdpt_phys | PAGE_PRESENT | PAGE_WRITABLE;
+    physmap_installed = 1;
 
     serial_write_string("[paging] physmap installed: base=");
     serial_write_hex64(PHYSMAP_BASE);
