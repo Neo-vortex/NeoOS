@@ -8,12 +8,35 @@
 // builds a fresh process directly from a path (not fork+exec), and
 // wait takes one specific PID (not "any child").
 
+#define STDIN_FILENO  0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
+#define SEEK_SET 0
+#define SEEK_CUR 1
+#define SEEK_END 2
+
 void exit(int code) __attribute__((noreturn));
 
-// Writes `len` bytes from `buf` to the console. Drops the `fd`
-// parameter real POSIX write() has -- there's no file descriptor
-// table yet, so there's nothing to select between.
-int64_t write(const char *buf, uint64_t len);
+// Writes `len` bytes from `buf` to the file (or console, for fd
+// STDOUT_FILENO/STDERR_FILENO) open on `fd`. Returns the number of
+// bytes written, or a negative errno.h code on failure.
+int64_t write(int fd, const void *buf, uint64_t len);
+
+// Reads up to `len` bytes from the file (or console, for fd
+// STDIN_FILENO, which always returns 0 -- there is no
+// keyboard-to-process input path yet) open on `fd` into `buf`.
+// Returns the number of bytes actually read (0 at EOF), or a negative
+// errno.h code on failure.
+int64_t read(int fd, void *buf, uint64_t len);
+
+// Closes `fd`. Returns 0, or a negative errno.h code on failure.
+int close(int fd);
+
+// Moves fd's read/write position. whence is SEEK_SET/SEEK_CUR/
+// SEEK_END. Returns the new absolute position, or a negative errno.h
+// code on failure.
+int64_t lseek(int fd, int64_t offset, int whence);
 
 int getpid(void);
 void yield(void);
@@ -25,5 +48,13 @@ int spawn(const char *path);
 // Blocks until the process with the given PID exits, reaps it, and
 // returns its exit code.
 int wait(int pid);
+
+// Creates a new, empty directory at `path`. Returns 0, or a negative
+// errno.h code on failure.
+int mkdir(const char *path);
+
+// Deletes the file at `path`. Returns 0, or a negative errno.h code
+// on failure (including -EISDIR if `path` is a directory).
+int unlink(const char *path);
 
 #endif

@@ -5,8 +5,19 @@
 
 #define MAX_TASKS 16
 #define KERNEL_STACK_ORDER 2 // 4 frames = 16KiB
+#define MAX_OPEN_FILES 8
 
 enum task_state { TASK_UNUSED, TASK_READY, TASK_RUNNING, TASK_BLOCKED, TASK_ZOMBIE };
+
+struct file_descriptor {
+    int in_use;
+    uint16_t first_cluster; // 0 = no clusters allocated yet
+    uint32_t size;
+    uint32_t position;
+    int writable;
+    uint32_t dir_entry_lba;
+    uint16_t dir_entry_offset;
+};
 
 struct task {
     int pid;
@@ -17,6 +28,7 @@ struct task {
     int parent_pid;
     int exit_code;
     int waiting_for_pid; // 0 = not blocked in wait(); else the PID this task is waiting on
+    struct file_descriptor files[MAX_OPEN_FILES];
     struct task *next; // ready-queue link
 };
 

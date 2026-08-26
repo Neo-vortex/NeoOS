@@ -102,6 +102,6 @@ int printf(const char *fmt, ...) {
 
     va_end(args);
 
-    write(buf, pos);
+    write(STDOUT_FILENO, buf, pos);
     return (int)pos;
 }

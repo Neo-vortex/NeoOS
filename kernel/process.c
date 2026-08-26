@@ -86,6 +86,9 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     t->parent_pid = 0;
     t->exit_code = 0;
     t->waiting_for_pid = 0;
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        t->files[i].in_use = 0;
+    }
     t->next = 0;
 
     enqueue_ready(t);
@@ -188,6 +191,9 @@ struct task *spawn(const char *path) {
     t->parent_pid = current ? current->pid : 0;
     t->exit_code = 0;
     t->waiting_for_pid = 0;
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        t->files[i].in_use = 0;
+    }
     t->next = 0;
 
     enqueue_ready(t);
