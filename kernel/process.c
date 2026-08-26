@@ -19,6 +19,29 @@ static struct task *ready_tail;
 static struct task *current;
 static int next_pid = 1;
 
+// Wipes a freshly allocated physical block before it becomes a task's
+// stack. pmm_alloc() hands back whatever the previous owner left there,
+// and at boot that "previous owner" is GRUB, whose own code sits in the
+// high end of the memory map it then reports back to us as available --
+// so the first task spawned gets stack frames still full of GRUB's
+// machine code. Beyond the obvious hygiene problem (a process could read
+// it), leaving it there is catastrophic for performance under QEMU's
+// TCG: a guest write to a physical page that still holds translated
+// blocks takes the slow notdirty path, and QEMU only drops the blocks
+// overlapping the bytes actually written -- so a stack whose hot slots
+// never overlap the stale code stays on that path forever, running
+// 150-2000x slower than normal RAM. Zeroing the whole block once
+// evicts every stale block and settles the page for good.
+// (elf_load() and paging.c's alloc_table_frame() already do the same
+// for the frames they hand out.)
+static void zero_frames(uint64_t phys, unsigned order) {
+    uint64_t *p = (uint64_t *)phys_to_virt(phys);
+    uint64_t words = (PMM_FRAME_SIZE << order) / sizeof(uint64_t);
+    for (uint64_t i = 0; i < words; i++) {
+        p[i] = 0;
+    }
+}
+
 static void enqueue_ready(struct task *t) {
     t->next = 0;
     if (ready_tail) {
@@ -67,6 +90,7 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     }
 
     uint64_t stack_phys = pmm_alloc(KERNEL_STACK_ORDER);
+    zero_frames(stack_phys, KERNEL_STACK_ORDER);
     uint64_t stack_top = (uint64_t)(uintptr_t)phys_to_virt(stack_phys) + (PMM_FRAME_SIZE << KERNEL_STACK_ORDER);
 
     uint64_t *sp = (uint64_t *)stack_top;
@@ -165,6 +189,7 @@ struct task *spawn(const char *path) {
 
     for (int i = 0; i < USER_STACK_PAGES; i++) {
         uint64_t frame = pmm_alloc(0);
+        zero_frames(frame, 0);
         uint64_t vaddr = USER_STACK_TOP - (uint64_t)(USER_STACK_PAGES - i) * PMM_FRAME_SIZE;
         paging_map_into(pml4, vaddr, frame, PAGE_WRITABLE | PAGE_NO_EXECUTE | PAGE_USER);
     }
@@ -176,6 +201,7 @@ struct task *spawn(const char *path) {
     }
 
     uint64_t kstack_phys = pmm_alloc(KERNEL_STACK_ORDER);
+    zero_frames(kstack_phys, KERNEL_STACK_ORDER);
     uint64_t kstack_top = (uint64_t)(uintptr_t)phys_to_virt(kstack_phys) + (PMM_FRAME_SIZE << KERNEL_STACK_ORDER);
 
     uint64_t *sp = (uint64_t *)kstack_top;
