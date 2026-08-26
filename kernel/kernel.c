@@ -14,6 +14,7 @@
 #include "mm/paging.h"
 #include "mm/heap.h"
 #include "ata.h"
+#include "fat16.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -65,6 +66,9 @@ void kmain(void *multiboot_info) {
 
     struct ata_identify_info ata_info;
     ata_identify(&ata_info);
+
+    fat16_mount();
+    fat16_selftest();
 
     serial_write_string("NeoOS: interrupts enabled, entering idle loop\n");
     __asm__ volatile ("sti");
