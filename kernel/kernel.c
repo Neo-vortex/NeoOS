@@ -12,6 +12,7 @@
 #include "keyboard.h"
 #include "mm/pmm.h"
 #include "mm/paging.h"
+#include "mm/heap.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -57,6 +58,9 @@ void kmain(void *multiboot_info) {
     serial_write_string("[ioapic] keyboard routed: gsi=");
     serial_write_hex64(acpi.irq1_gsi);
     serial_write_string(" vector=0x21\n");
+
+    heap_init();
+    heap_selftest();
 
     serial_write_string("NeoOS: interrupts enabled, entering idle loop\n");
     __asm__ volatile ("sti");
