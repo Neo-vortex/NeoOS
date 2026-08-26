@@ -11,7 +11,7 @@ C_SOURCES := $(wildcard kernel/*.c) $(wildcard kernel/mm/*.c)
 C_OBJECTS := $(patsubst kernel/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/gdt_flush.o $(BUILD_DIR)/isr_stubs.o
 
-.PHONY: all build iso run clean
+.PHONY: all build iso run clean disk-image
 
 all: build
 
@@ -42,8 +42,25 @@ iso: $(BUILD_DIR)/kernel.elf
 	cp boot/grub.cfg $(ISO_DIR)/boot/grub/grub.cfg
 	grub-mkrescue -o $(BUILD_DIR)/neoos.iso $(ISO_DIR)
 
-run: iso
-	qemu-system-x86_64 -cdrom $(BUILD_DIR)/neoos.iso
+DISK_IMG := $(BUILD_DIR)/disk.img
+DISK_SRC := $(BUILD_DIR)/disk-src
+
+$(DISK_IMG):
+	mkdir -p $(DISK_SRC)/DIR
+	printf 'Hello from NeoOS FAT16!\n' > $(DISK_SRC)/HELLO.TXT
+	head -c 8192 /dev/zero | tr '\0' 'N' > $(DISK_SRC)/BIGFILE.TXT
+	printf 'nested file contents\n' > $(DISK_SRC)/DIR/NESTED.TXT
+	dd if=/dev/zero of=$(DISK_IMG) bs=1M count=32 status=none
+	mkfs.fat -F 16 $(DISK_IMG)
+	mcopy -i $(DISK_IMG) $(DISK_SRC)/HELLO.TXT ::HELLO.TXT
+	mcopy -i $(DISK_IMG) $(DISK_SRC)/BIGFILE.TXT ::BIGFILE.TXT
+	mmd -i $(DISK_IMG) ::DIR
+	mcopy -i $(DISK_IMG) $(DISK_SRC)/DIR/NESTED.TXT ::DIR/NESTED.TXT
+
+disk-image: $(DISK_IMG)
+
+run: iso disk-image
+	qemu-system-x86_64 -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO_DIR)
