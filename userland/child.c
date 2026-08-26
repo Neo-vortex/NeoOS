@@ -1,7 +1,10 @@
-#include "neoos_syscall.h"
+#include <unistd.h>
+#include <string.h>
 
-void _start(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
     const char msg[] = "child running, exiting with code 42\n";
-    sys_write(msg, user_strlen(msg));
-    sys_exit(42);
+    write(msg, strlen(msg));
+    return 42;
 }
