@@ -135,6 +135,59 @@ static void fat16_free_chain(uint16_t first_cluster) {
     }
 }
 
+// Returns the cluster containing byte offset `byte_offset` within the
+// chain starting at `first_cluster`, by walking from the start every
+// call. O(chain length) per call -- acceptable at this project's file
+// sizes; a future milestone could cache the last-accessed cluster per
+// fd if it ever matters. Caller must ensure the chain is long enough.
+static uint16_t cluster_at_offset(uint16_t first_cluster, uint32_t byte_offset) {
+    uint32_t cluster_size_bytes = (uint32_t)sectors_per_cluster * bytes_per_sector;
+    uint32_t cluster_index = byte_offset / cluster_size_bytes;
+    uint16_t cluster = first_cluster;
+    for (uint32_t i = 0; i < cluster_index; i++) {
+        cluster = fat16_next_cluster(cluster);
+    }
+    return cluster;
+}
+
+// Writes `len` bytes into the cluster chain starting at chain_start,
+// beginning at byte offset write_position. If zero_fill is set, zero
+// bytes are written instead of reading from src (used for gap-filling
+// past old EOF). Does read-modify-write for any partial sector.
+// Assumes the chain already has enough clusters to cover
+// write_position+len -- callers must extend it first.
+static void write_range(uint16_t chain_start, uint32_t write_position, const void *src, uint32_t len, int zero_fill) {
+    const uint8_t *in = (const uint8_t *)src;
+    uint32_t cluster_size_bytes = (uint32_t)sectors_per_cluster * bytes_per_sector;
+    uint32_t written = 0;
+
+    while (written < len) {
+        uint32_t abs_offset = write_position + written;
+        uint32_t offset_in_cluster = abs_offset % cluster_size_bytes;
+        uint32_t sector_index = offset_in_cluster / bytes_per_sector;
+        uint32_t offset_in_sector = offset_in_cluster % bytes_per_sector;
+
+        uint16_t cluster = cluster_at_offset(chain_start, abs_offset);
+        uint32_t lba = cluster_to_lba(cluster) + sector_index;
+
+        uint32_t to_write = bytes_per_sector - offset_in_sector;
+        if (to_write > len - written) {
+            to_write = len - written;
+        }
+
+        uint8_t sector[SECTOR_SIZE];
+        if (offset_in_sector != 0 || to_write != bytes_per_sector) {
+            ata_read_sectors(lba, 1, sector); // partial sector: preserve untouched bytes
+        }
+        for (uint32_t i = 0; i < to_write; i++) {
+            sector[offset_in_sector + i] = zero_fill ? 0 : in[written + i];
+        }
+        ata_write_sectors(lba, 1, sector);
+
+        written += to_write;
+    }
+}
+
 uint32_t fat16_read_file(uint16_t first_cluster, uint32_t size, void *buffer) {
     uint8_t *out = (uint8_t *)buffer;
     uint32_t bytes_read = 0;
@@ -157,6 +210,94 @@ uint32_t fat16_read_file(uint16_t first_cluster, uint32_t size, void *buffer) {
         cluster = fat16_next_cluster(cluster);
     }
     return bytes_read;
+}
+
+void fat16_read_at(uint16_t first_cluster, uint32_t position, void *buf, uint32_t len) {
+    uint8_t *out = (uint8_t *)buf;
+    uint32_t cluster_size_bytes = (uint32_t)sectors_per_cluster * bytes_per_sector;
+    uint32_t read_so_far = 0;
+
+    while (read_so_far < len) {
+        uint32_t abs_offset = position + read_so_far;
+        uint32_t offset_in_cluster = abs_offset % cluster_size_bytes;
+        uint32_t sector_index = offset_in_cluster / bytes_per_sector;
+        uint32_t offset_in_sector = offset_in_cluster % bytes_per_sector;
+
+        uint16_t cluster = cluster_at_offset(first_cluster, abs_offset);
+        uint32_t lba = cluster_to_lba(cluster) + sector_index;
+
+        uint32_t to_read = bytes_per_sector - offset_in_sector;
+        if (to_read > len - read_so_far) {
+            to_read = len - read_so_far;
+        }
+
+        uint8_t sector[SECTOR_SIZE];
+        ata_read_sectors(lba, 1, sector);
+        for (uint32_t i = 0; i < to_read; i++) {
+            out[read_so_far + i] = sector[offset_in_sector + i];
+        }
+
+        read_so_far += to_read;
+    }
+}
+
+int fat16_write_file(uint16_t first_cluster, uint32_t current_size, uint32_t position,
+                      const void *buf, uint32_t len,
+                      uint16_t *out_first_cluster, uint32_t *out_new_size) {
+    if (len == 0) {
+        *out_first_cluster = first_cluster;
+        *out_new_size = current_size;
+        return 0;
+    }
+
+    uint32_t cluster_size_bytes = (uint32_t)sectors_per_cluster * bytes_per_sector;
+    uint32_t end_position = position + len;
+    uint32_t clusters_needed = (end_position + cluster_size_bytes - 1) / cluster_size_bytes;
+
+    uint16_t chain_start = first_cluster;
+    uint16_t last_cluster = 0;
+    uint32_t existing_clusters = 0;
+
+    if (chain_start != 0) {
+        uint16_t c = chain_start;
+        existing_clusters = 1;
+        while (fat16_next_cluster(c) < FAT16_EOC_MIN) {
+            c = fat16_next_cluster(c);
+            existing_clusters++;
+        }
+        last_cluster = c;
+    }
+
+    while (existing_clusters < clusters_needed) {
+        uint16_t new_cluster = fat16_alloc_cluster();
+        if (new_cluster == 0) {
+            return -ENOSPC;
+        }
+        if (chain_start == 0) {
+            chain_start = new_cluster;
+        } else {
+            fat16_set_next_cluster(last_cluster, new_cluster);
+        }
+        last_cluster = new_cluster;
+        existing_clusters++;
+    }
+
+    if (position > current_size) {
+        write_range(chain_start, current_size, NULL, position - current_size, 1);
+    }
+    write_range(chain_start, position, buf, len, 0);
+
+    *out_first_cluster = chain_start;
+    *out_new_size = end_position > current_size ? end_position : current_size;
+    return (int)len;
+}
+
+void fat16_truncate(uint16_t first_cluster, uint32_t dir_lba, uint16_t dir_offset, uint16_t *out_first_cluster) {
+    if (first_cluster != 0) {
+        fat16_free_chain(first_cluster);
+    }
+    *out_first_cluster = 0;
+    fat16_update_entry_size(dir_lba, dir_offset, 0, 0);
 }
 
 static void to_fat_name(const char *name, uint8_t *out11) {
@@ -719,6 +860,68 @@ void fat16_write_selftest(void) {
         serial_write_string("[fat16] write selftest FAILED: /NEWDIR/INNER.TXT not found after creation\n");
         return;
     }
+
+    uint32_t dir_lba;
+    uint16_t dir_offset;
+    if (fat16_create_file("/WDATA.TXT", &dir_lba, &dir_offset) != 0) {
+        serial_write_string("[fat16] write selftest FAILED: fat16_create_file(/WDATA.TXT) failed\n");
+        return;
+    }
+    const char *phrase = "Hello, written file!"; // NOTE: 20 bytes, see the next line
+    uint32_t phrase_len = 20;
+    uint16_t new_cluster;
+    uint32_t new_size;
+    int written = fat16_write_file(0, 0, 0, phrase, phrase_len, &new_cluster, &new_size);
+    if (written != (int)phrase_len || new_size != phrase_len) {
+        serial_write_string("[fat16] write selftest FAILED: fat16_write_file(/WDATA.TXT) wrote wrong length\n");
+        return;
+    }
+    fat16_update_entry_size(dir_lba, dir_offset, new_cluster, new_size);
+
+    uint8_t readback[64];
+    fat16_read_at(new_cluster, 0, readback, phrase_len);
+    for (uint32_t i = 0; i < phrase_len; i++) {
+        if (readback[i] != (uint8_t)phrase[i]) {
+            serial_write_string("[fat16] write selftest FAILED: /WDATA.TXT readback mismatch\n");
+            return;
+        }
+    }
+
+    // Random-access overwrite mid-file: "written" (position 7) -> "WRITTEN".
+    const char *patch = "WRITTEN";
+    written = fat16_write_file(new_cluster, new_size, 7, patch, 7, &new_cluster, &new_size);
+    if (written != 7) {
+        serial_write_string("[fat16] write selftest FAILED: mid-file overwrite failed\n");
+        return;
+    }
+    fat16_update_entry_size(dir_lba, dir_offset, new_cluster, new_size);
+    fat16_read_at(new_cluster, 0, readback, new_size);
+    if (!buffer_equals_string(readback, new_size, "Hello, WRITTEN file!")) {
+        serial_write_string("[fat16] write selftest FAILED: mid-file overwrite readback mismatch\n");
+        return;
+    }
+
+    // Write past current EOF (position 25, current size 20): the
+    // 5-byte gap [20,25) must be zero-filled.
+    written = fat16_write_file(new_cluster, new_size, new_size + 5, "END", 3, &new_cluster, &new_size);
+    if (written != 3) {
+        serial_write_string("[fat16] write selftest FAILED: past-EOF write failed\n");
+        return;
+    }
+    fat16_update_entry_size(dir_lba, dir_offset, new_cluster, new_size);
+    fat16_read_at(new_cluster, 0, readback, new_size);
+    for (uint32_t i = 20; i < 25; i++) {
+        if (readback[i] != 0) {
+            serial_write_string("[fat16] write selftest FAILED: gap not zero-filled\n");
+            return;
+        }
+    }
+    if (readback[25] != 'E' || readback[26] != 'N' || readback[27] != 'D') {
+        serial_write_string("[fat16] write selftest FAILED: past-EOF write data mismatch\n");
+        return;
+    }
+
+    fat16_delete_entry("/WDATA.TXT");
 
     serial_write_string("[fat16] write selftest passed\n");
 }
