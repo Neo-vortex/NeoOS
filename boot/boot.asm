@@ -17,7 +17,7 @@ header_start:
     dd 8    ; size
 header_end:
 
-section .boot.bss
+section .boot.bss nobits alloc noexec write align=4096
 align 4096
 p4_table:
     resb 4096

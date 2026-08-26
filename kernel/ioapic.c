@@ -1,4 +1,5 @@
 #include "ioapic.h"
+#include "mm/paging.h"
 
 #define IOAPIC_REGSEL 0
 #define IOAPIC_REGWIN 4 // 32-bit-word index of the IOWIN register (byte offset 0x10)
@@ -16,7 +17,7 @@ static void ioapic_write(uint8_t reg, uint32_t value) {
 }
 
 void ioapic_init(uint32_t address) {
-    ioapic_base = (volatile uint32_t *)(uintptr_t)address;
+    ioapic_base = (volatile uint32_t *)phys_to_virt(address);
     (void)ioapic_read(0x00); // touch IOAPICID to confirm the MMIO mapping is live
 }
 

@@ -1,4 +1,5 @@
 #include "lapic.h"
+#include "mm/paging.h"
 
 #define LAPIC_REG_ID         0x020
 #define LAPIC_REG_EOI        0x0B0
@@ -22,7 +23,7 @@ static void lapic_write(uint32_t reg, uint32_t value) {
 }
 
 void lapic_init(uint32_t address) {
-    lapic_base = (volatile uint32_t *)(uintptr_t)address;
+    lapic_base = (volatile uint32_t *)phys_to_virt(address);
     lapic_write(LAPIC_REG_SVR, lapic_read(LAPIC_REG_SVR) | 0x100 | 0xFF); // software-enable, spurious vector 0xFF
 }
 

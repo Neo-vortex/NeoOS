@@ -1,5 +1,6 @@
 #include "acpi.h"
 #include "serial.h"
+#include "mm/paging.h"
 
 struct acpi_rsdp {
     char signature[8];
@@ -73,7 +74,7 @@ static int is_rsdp_signature(const struct acpi_rsdp *candidate) {
 
 static struct acpi_rsdp *find_rsdp_in_range(uint32_t start, uint32_t end) {
     for (uint32_t addr = start; addr < end; addr += 16) {
-        struct acpi_rsdp *candidate = (struct acpi_rsdp *)(uintptr_t)addr;
+        struct acpi_rsdp *candidate = (struct acpi_rsdp *)phys_to_virt(addr);
         if (is_rsdp_signature(candidate) && sum_bytes(candidate, 20) == 0) {
             return candidate;
         }
@@ -86,7 +87,7 @@ static struct acpi_rsdp *find_rsdp(void) {
     // "near null" and can't know it's a valid BIOS Data Area access.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
-    uint16_t ebda_segment = *(volatile uint16_t *)(uintptr_t)0x40E;
+    uint16_t ebda_segment = *(volatile uint16_t *)phys_to_virt(0x40E);
 #pragma GCC diagnostic pop
     uint32_t ebda_addr = (uint32_t)ebda_segment << 4;
 
@@ -103,12 +104,12 @@ static int is_apic_signature(const struct acpi_sdt_header *header) {
 }
 
 static struct acpi_madt *find_madt_via_xsdt(uint64_t xsdt_address) {
-    struct acpi_sdt_header *xsdt = (struct acpi_sdt_header *)(uintptr_t)xsdt_address;
+    struct acpi_sdt_header *xsdt = (struct acpi_sdt_header *)phys_to_virt(xsdt_address);
     uint64_t *entries = (uint64_t *)((uint8_t *)xsdt + sizeof(struct acpi_sdt_header));
     uint32_t entry_count = (xsdt->length - sizeof(struct acpi_sdt_header)) / sizeof(uint64_t);
 
     for (uint32_t i = 0; i < entry_count; i++) {
-        struct acpi_sdt_header *table = (struct acpi_sdt_header *)(uintptr_t)entries[i];
+        struct acpi_sdt_header *table = (struct acpi_sdt_header *)phys_to_virt(entries[i]);
         if (is_apic_signature(table)) {
             return (struct acpi_madt *)table;
         }
@@ -117,12 +118,12 @@ static struct acpi_madt *find_madt_via_xsdt(uint64_t xsdt_address) {
 }
 
 static struct acpi_madt *find_madt_via_rsdt(uint32_t rsdt_address) {
-    struct acpi_sdt_header *rsdt = (struct acpi_sdt_header *)(uintptr_t)rsdt_address;
+    struct acpi_sdt_header *rsdt = (struct acpi_sdt_header *)phys_to_virt(rsdt_address);
     uint32_t *entries = (uint32_t *)((uint8_t *)rsdt + sizeof(struct acpi_sdt_header));
     uint32_t entry_count = (rsdt->length - sizeof(struct acpi_sdt_header)) / sizeof(uint32_t);
 
     for (uint32_t i = 0; i < entry_count; i++) {
-        struct acpi_sdt_header *table = (struct acpi_sdt_header *)(uintptr_t)entries[i];
+        struct acpi_sdt_header *table = (struct acpi_sdt_header *)phys_to_virt(entries[i]);
         if (is_apic_signature(table)) {
             return (struct acpi_madt *)table;
         }

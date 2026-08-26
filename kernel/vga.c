@@ -1,6 +1,7 @@
 #include "vga.h"
+#include "mm/paging.h"
 
-static volatile unsigned short *const VGA_BUFFER = (unsigned short *)0xb8000;
+static volatile unsigned short *VGA_BUFFER;
 static const unsigned short VGA_COLOR_WHITE_ON_BLACK = 0x0f;
 #define VGA_CELL_COUNT 2000
 #define VGA_COLUMNS 80
@@ -8,6 +9,7 @@ static const unsigned short VGA_COLOR_WHITE_ON_BLACK = 0x0f;
 static int vga_cursor = 0;
 
 void vga_clear(void) {
+    VGA_BUFFER = (volatile unsigned short *)phys_to_virt(0xb8000);
     for (int i = 0; i < VGA_CELL_COUNT; i++) {
         VGA_BUFFER[i] = (unsigned short)(' ') | (unsigned short)(VGA_COLOR_WHITE_ON_BLACK << 8);
     }
