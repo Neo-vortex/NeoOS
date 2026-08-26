@@ -1,7 +1,10 @@
-#include "neoos_syscall.h"
+#include <unistd.h>
+#include <string.h>
 
-void _start(void) {
+int main(int argc, char **argv) {
+    (void)argc;
+    (void)argv;
     const char msg[] = "spin test program running\n";
-    sys_write(msg, user_strlen(msg));
-    sys_exit(0);
+    write(msg, strlen(msg));
+    return 0;
 }

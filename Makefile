@@ -53,13 +53,29 @@ iso: $(BUILD_DIR)/kernel.elf
 DISK_IMG := $(BUILD_DIR)/disk.img
 DISK_SRC := $(BUILD_DIR)/disk-src
 
+LIB_DIR := lib
+LIB_BUILD := $(BUILD_DIR)/lib
+LIB_SOURCES := $(wildcard $(LIB_DIR)/*.c)
+LIB_OBJECTS := $(patsubst $(LIB_DIR)/%.c,$(LIB_BUILD)/%.o,$(LIB_SOURCES))
+
 USERLAND_DIR := userland
 USERLAND_BUILD := $(BUILD_DIR)/userland
-USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=large -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
+USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=large -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(LIB_DIR)/include
 
-$(USERLAND_BUILD)/SPIN.ELF: $(USERLAND_DIR)/spin.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
+$(LIB_BUILD)/%.o: $(LIB_DIR)/%.c
+	mkdir -p $(LIB_BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(LIB_BUILD)/crt0.o: $(LIB_DIR)/crt0.asm
+	mkdir -p $(LIB_BUILD)
+	$(AS) $(ASFLAGS) $(LIB_DIR)/crt0.asm -o $(LIB_BUILD)/crt0.o
+
+$(LIB_BUILD)/libneoos.a: $(LIB_OBJECTS)
+	ar rcs $(LIB_BUILD)/libneoos.a $(LIB_OBJECTS)
+
+$(USERLAND_BUILD)/SPIN.ELF: $(USERLAND_DIR)/spin.c $(USERLAND_DIR)/user.ld $(LIB_BUILD)/crt0.o $(LIB_BUILD)/libneoos.a
 	mkdir -p $(USERLAND_BUILD)
-	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(USERLAND_DIR)/spin.c
+	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(LIB_BUILD)/crt0.o $(USERLAND_DIR)/spin.c -L$(LIB_BUILD) -lneoos
 
 $(USERLAND_BUILD)/CHILD.ELF: $(USERLAND_DIR)/child.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
 	mkdir -p $(USERLAND_BUILD)
