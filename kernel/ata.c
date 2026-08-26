@@ -21,17 +21,26 @@
 #define ATA_CMD_CACHE_FLUSH   0xE7
 
 #define ATA_POLL_MAX_ITERATIONS 100000
+// CACHE_FLUSH maps to a real host fsync() on the backing disk image --
+// orders of magnitude slower than the in-memory register transitions
+// every other wait in this file deals with, so it gets its own, much
+// larger, budget.
+#define ATA_POLL_MAX_ITERATIONS_FLUSH 100000000
 
 // Bounded poll -- a drive that never reaches the requested status
 // within this many reads is treated as a hardware failure, logged and
 // reported to the caller, rather than hanging forever.
-static int ata_wait_status(uint8_t mask, uint8_t value) {
-    for (uint32_t i = 0; i < ATA_POLL_MAX_ITERATIONS; i++) {
+static int ata_wait_status_bounded(uint8_t mask, uint8_t value, uint32_t max_iterations) {
+    for (uint32_t i = 0; i < max_iterations; i++) {
         if ((inb(ATA_STATUS) & mask) == value) {
             return 1;
         }
     }
     return 0;
+}
+
+static int ata_wait_status(uint8_t mask, uint8_t value) {
+    return ata_wait_status_bounded(mask, value, ATA_POLL_MAX_ITERATIONS);
 }
 
 int ata_identify(struct ata_identify_info *info) {
@@ -132,8 +141,16 @@ int ata_write_sectors(uint32_t lba, uint8_t count, const void *buffer) {
         }
     }
 
-    outb(ATA_COMMAND, ATA_CMD_CACHE_FLUSH);
+    // The drive raises BSY again while it commits the last sector's
+    // data before it's ready for a new command -- without waiting
+    // here, CACHE_FLUSH can be issued into that window.
     if (!ata_wait_status(ATA_STATUS_BSY, 0)) {
+        serial_write_string("[ata] write FAILED: BSY never cleared after last sector\n");
+        return 0;
+    }
+
+    outb(ATA_COMMAND, ATA_CMD_CACHE_FLUSH);
+    if (!ata_wait_status_bounded(ATA_STATUS_BSY, 0, ATA_POLL_MAX_ITERATIONS_FLUSH)) {
         serial_write_string("[ata] write FAILED: cache flush BSY never cleared\n");
         return 0;
     }
