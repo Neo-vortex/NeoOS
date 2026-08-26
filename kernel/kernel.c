@@ -5,6 +5,7 @@
 #include "gdt.h"
 #include "idt.h"
 #include "acpi.h"
+#include "pic.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -24,6 +25,9 @@ void kmain(void *multiboot_info) {
 
     struct acpi_info acpi;
     acpi_find_madt(&acpi);
+
+    pic_disable();
+    serial_write_string("[pic] disabled\n");
 
     for (;;) {
         __asm__ volatile ("hlt");
