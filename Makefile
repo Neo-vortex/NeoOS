@@ -45,7 +45,15 @@ iso: $(BUILD_DIR)/kernel.elf
 DISK_IMG := $(BUILD_DIR)/disk.img
 DISK_SRC := $(BUILD_DIR)/disk-src
 
-$(DISK_IMG):
+USERLAND_DIR := userland
+USERLAND_BUILD := $(BUILD_DIR)/userland
+USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(USERLAND_DIR)
+
+$(USERLAND_BUILD)/SPIN.ELF: $(USERLAND_DIR)/spin.c $(USERLAND_DIR)/user.ld $(USERLAND_DIR)/neoos_syscall.h
+	mkdir -p $(USERLAND_BUILD)
+	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(USERLAND_DIR)/spin.c
+
+$(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF
 	mkdir -p $(DISK_SRC)/DIR
 	printf 'Hello from NeoOS FAT16!\n' > $(DISK_SRC)/HELLO.TXT
 	head -c 8192 /dev/zero | tr '\0' 'N' > $(DISK_SRC)/BIGFILE.TXT
@@ -56,6 +64,8 @@ $(DISK_IMG):
 	mcopy -i $(DISK_IMG) $(DISK_SRC)/BIGFILE.TXT ::BIGFILE.TXT
 	mmd -i $(DISK_IMG) ::DIR
 	mcopy -i $(DISK_IMG) $(DISK_SRC)/DIR/NESTED.TXT ::DIR/NESTED.TXT
+	mmd -i $(DISK_IMG) ::BIN
+	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/SPIN.ELF ::BIN/SPIN.ELF
 
 disk-image: $(DISK_IMG)
 
