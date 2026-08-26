@@ -1,6 +1,8 @@
 #include "isr.h"
 #include "serial.h"
 #include "vga.h"
+#include "timer.h"
+#include "lapic.h"
 
 static const char *exception_names[32] = {
     "Divide Error", "Debug", "NMI", "Breakpoint", "Overflow",
@@ -63,6 +65,12 @@ static void unhandled_interrupt(uint64_t vector) {
 void isr_handler(struct registers *regs) {
     if (regs->vector_number < 32) {
         exception_dump_and_halt(regs);
+        return;
+    }
+
+    if (regs->vector_number == VECTOR_TIMER) {
+        timer_handler();
+        lapic_send_eoi();
         return;
     }
 

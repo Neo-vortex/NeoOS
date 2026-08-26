@@ -8,6 +8,7 @@
 #include "pic.h"
 #include "lapic.h"
 #include "ioapic.h"
+#include "timer.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -37,6 +38,8 @@ void kmain(void *multiboot_info) {
 
     ioapic_init(acpi.ioapic_address);
     serial_write_string("[ioapic] initialized\n");
+
+    timer_init();
 
     for (;;) {
         __asm__ volatile ("hlt");
