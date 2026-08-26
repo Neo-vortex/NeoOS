@@ -85,3 +85,13 @@ convention.
   length modifiers. Formats into a fixed internal buffer and writes it
   out via one `write()` call; there is no `FILE*`/streams concept, so
   `printf` always targets the same console `write()` does.
+
+## SSE/SSE2/SSE3/SSE4
+
+User-mode programs may freely use SSE, SSE2, SSE3, SSSE3, SSE4.1, and
+SSE4.2 floating-point and vector instructions (including via GCC's
+`<xmmintrin.h>`/`<emmintrin.h>`/`<smmintrin.h>` intrinsic headers) --
+there is no library function to call for this, it's a CPU/build
+capability, not an API. Each process's FPU/SSE register state is
+saved and restored across context switches automatically. MMX and
+AVX/AVX2/AVX-512 are not supported.

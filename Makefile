@@ -60,7 +60,7 @@ LIB_OBJECTS := $(patsubst $(LIB_DIR)/%.c,$(LIB_BUILD)/%.o,$(LIB_SOURCES))
 
 USERLAND_DIR := userland
 USERLAND_BUILD := $(BUILD_DIR)/userland
-USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -mno-sse -mno-sse2 -mcmodel=large -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(LIB_DIR)/include
+USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -mno-mmx -msse3 -mssse3 -msse4.1 -msse4.2 -mcmodel=large -fno-pic -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(LIB_DIR)/include
 
 $(LIB_BUILD)/%.o: $(LIB_DIR)/%.c
 	mkdir -p $(LIB_BUILD)
@@ -101,7 +101,11 @@ $(USERLAND_BUILD)/FILEIO.ELF: $(USERLAND_DIR)/fileio.c $(USERLAND_DIR)/user.ld $
 	mkdir -p $(USERLAND_BUILD)
 	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(LIB_BUILD)/crt0.o $(USERLAND_DIR)/fileio.c -L$(LIB_BUILD) -lneoos
 
-$(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_BUILD)/PARENT.ELF $(USERLAND_BUILD)/LOOPER.ELF $(USERLAND_BUILD)/YIELDER.ELF $(USERLAND_BUILD)/FAULTER.ELF $(USERLAND_BUILD)/FILEIO.ELF
+$(USERLAND_BUILD)/SSE_TEST.ELF: $(USERLAND_DIR)/sse_test.c $(USERLAND_DIR)/user.ld $(LIB_BUILD)/crt0.o $(LIB_BUILD)/libneoos.a
+	mkdir -p $(USERLAND_BUILD)
+	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(LIB_BUILD)/crt0.o $(USERLAND_DIR)/sse_test.c -L$(LIB_BUILD) -lneoos
+
+$(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_BUILD)/PARENT.ELF $(USERLAND_BUILD)/LOOPER.ELF $(USERLAND_BUILD)/YIELDER.ELF $(USERLAND_BUILD)/FAULTER.ELF $(USERLAND_BUILD)/FILEIO.ELF $(USERLAND_BUILD)/SSE_TEST.ELF
 	mkdir -p $(DISK_SRC)/DIR
 	printf 'Hello from NeoOS FAT16!\n' > $(DISK_SRC)/HELLO.TXT
 	head -c 8192 /dev/zero | tr '\0' 'N' > $(DISK_SRC)/BIGFILE.TXT
@@ -120,11 +124,12 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/YIELDER.ELF ::BIN/YIELDER.ELF
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/FAULTER.ELF ::BIN/FAULTER.ELF
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/FILEIO.ELF ::BIN/FILEIO.ELF
+	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/SSE_TEST.ELF ::BIN/SSE_TEST.ELF
 
 disk-image: $(DISK_IMG)
 
 run: iso disk-image
-	qemu-system-x86_64 -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
+	qemu-system-x86_64 -cpu Nehalem -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO_DIR)
