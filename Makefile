@@ -7,6 +7,10 @@ ASFLAGS := -f elf64
 BUILD_DIR := build
 ISO_DIR := iso
 
+C_SOURCES := $(wildcard kernel/*.c)
+C_OBJECTS := $(patsubst kernel/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
+ASM_OBJECTS := $(BUILD_DIR)/boot.o
+
 .PHONY: all build iso run clean
 
 all: build
@@ -17,12 +21,12 @@ $(BUILD_DIR)/boot.o: boot/boot.asm
 	mkdir -p $(BUILD_DIR)
 	$(AS) $(ASFLAGS) boot/boot.asm -o $(BUILD_DIR)/boot.o
 
-$(BUILD_DIR)/kernel.o: kernel/kernel.c kernel/kernel.h
+$(BUILD_DIR)/%.o: kernel/%.c
 	mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c kernel/kernel.c -o $(BUILD_DIR)/kernel.o
+	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o linker.ld
-	$(CC) -T linker.ld -o $(BUILD_DIR)/kernel.elf -ffreestanding -O2 -nostdlib $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o -lgcc
+$(BUILD_DIR)/kernel.elf: $(ASM_OBJECTS) $(C_OBJECTS) linker.ld
+	$(CC) -T linker.ld -o $(BUILD_DIR)/kernel.elf -ffreestanding -O2 -nostdlib $(ASM_OBJECTS) $(C_OBJECTS) -lgcc
 
 iso: $(BUILD_DIR)/kernel.elf
 	mkdir -p $(ISO_DIR)/boot/grub
