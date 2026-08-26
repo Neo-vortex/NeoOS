@@ -17,6 +17,7 @@
 #include "fat16.h"
 #include "process.h"
 #include "syscall.h"
+#include "cpu.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -72,6 +73,8 @@ void kmain(void *multiboot_info) {
     fat16_mount();
     fat16_selftest();
     fat16_write_selftest();
+
+    cpu_init();
 
     process_init();
     syscall_init();
