@@ -10,12 +10,14 @@
 #include "ioapic.h"
 #include "timer.h"
 #include "keyboard.h"
+#include "mm/pmm.h"
 
 void kmain(void *multiboot_info) {
-    (void)multiboot_info;
-
     serial_init();
-    serial_write_string("NeoOS booting (milestone 2: interrupts)\n");
+    serial_write_string("NeoOS booting (milestone 3: memory management)\n");
+
+    pmm_init(multiboot_info);
+    pmm_selftest();
 
     vga_clear();
     vga_print_string("NeoOS booted");

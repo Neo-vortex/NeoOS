@@ -9,6 +9,8 @@ SECTIONS
         *(.multiboot_header)
     }
 
+    kernel_phys_start = .;
+
     .text ALIGN(4K) :
     {
         *(.text .text.*)
@@ -29,4 +31,6 @@ SECTIONS
         *(COMMON)
         *(.bss .bss.*)
     }
+
+    kernel_phys_end = .;
 }
