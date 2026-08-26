@@ -2,6 +2,7 @@
 #define NEOOS_PROCESS_H
 
 #include <stdint.h>
+#include "cpu.h"
 
 #define MAX_TASKS 16
 #define KERNEL_STACK_ORDER 2 // 4 frames = 16KiB
@@ -29,6 +30,7 @@ struct task {
     int exit_code;
     int waiting_for_pid; // 0 = not blocked in wait(); else the PID this task is waiting on
     struct file_descriptor files[MAX_OPEN_FILES];
+    uint8_t fpu_state[FPU_STATE_SIZE] __attribute__((aligned(16)));
     struct task *next; // ready-queue link
 };
 

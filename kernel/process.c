@@ -6,6 +6,7 @@
 #include "serial.h"
 #include "fat16.h"
 #include "elf.h"
+#include "cpu.h"
 
 extern void context_switch(uint64_t *old_rsp, uint64_t *new_rsp);
 extern void kernel_thread_entry_trampoline(void);
@@ -89,6 +90,7 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         t->files[i].in_use = 0;
     }
+    cpu_default_fpu_state(t->fpu_state);
     t->next = 0;
 
     enqueue_ready(t);
@@ -124,6 +126,10 @@ void schedule(void) {
     }
 
     static uint64_t discarded_rsp; // used the first time schedule() is ever called, from kmain
+    if (prev) {
+        fpu_save(prev->fpu_state);
+    }
+    fpu_restore(next->fpu_state);
     context_switch(prev ? &prev->saved_rsp : &discarded_rsp, &next->saved_rsp);
 }
 
@@ -194,6 +200,7 @@ struct task *spawn(const char *path) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         t->files[i].in_use = 0;
     }
+    cpu_default_fpu_state(t->fpu_state);
     t->next = 0;
 
     enqueue_ready(t);
