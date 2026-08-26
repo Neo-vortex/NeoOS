@@ -11,6 +11,7 @@
 #include "timer.h"
 #include "keyboard.h"
 #include "mm/pmm.h"
+#include "mm/paging.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -21,6 +22,9 @@ void kmain(void *multiboot_info) {
 
     pmm_init(multiboot_info);
     pmm_selftest();
+
+    paging_init();
+    paging_selftest();
 
     vga_clear();
     vga_print_string("NeoOS booted");
