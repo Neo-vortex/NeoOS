@@ -4,6 +4,7 @@
 #include "tss.h"
 #include "gdt.h"
 #include "idt.h"
+#include "acpi.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -20,6 +21,9 @@ void kmain(void *multiboot_info) {
 
     idt_init();
     serial_write_string("[idt] loaded\n");
+
+    struct acpi_info acpi;
+    acpi_find_madt(&acpi);
 
     for (;;) {
         __asm__ volatile ("hlt");
