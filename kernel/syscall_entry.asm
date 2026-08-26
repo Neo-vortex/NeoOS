@@ -69,6 +69,7 @@ syscall_entry:
     mov rdi, r9
     mov rcx, r10
     mov r8, rax
+    mov r9, rsp   ; base of the saved-register block -- syscall_dispatch's 6th argument
 
     call syscall_dispatch
 

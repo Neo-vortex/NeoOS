@@ -93,8 +93,9 @@ static void copy_user_path(int64_t user_ptr, int64_t user_len, char *out, uint64
 }
 
 // Called only from syscall_entry.asm's `call syscall_dispatch`.
-int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_t a4) {
+int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_t a4, struct syscall_frame *frame) {
     (void)a4;
+    (void)frame; // unused until fork()/exec() land
     switch (num) {
         case SYS_EXIT:
             task_exit((int)a1);
