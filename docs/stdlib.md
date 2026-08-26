@@ -9,10 +9,23 @@ alongside the library code that exposes it.
 
 - `void exit(int code)` — terminates the calling process with the
   given exit code. Never returns.
-- `int64_t write(const char *buf, uint64_t len)` — writes `len` bytes
-  from `buf` to the console. No `fd` parameter (no file descriptor
-  table exists yet) and no return-value distinction for partial
-  writes yet — matches the underlying kernel `write` syscall exactly.
+- `int64_t write(int fd, const void *buf, uint64_t len)` — writes
+  `len` bytes from `buf` to the file (or console, for fd
+  `STDOUT_FILENO`/`STDERR_FILENO`) open on `fd`. Returns the number of
+  bytes written, or a negative `<errno.h>` code on failure.
+- `int64_t read(int fd, void *buf, uint64_t len)` — reads up to `len`
+  bytes from the file (or console, for fd `STDIN_FILENO`, which always
+  returns 0 -- there is no keyboard-to-process input path yet) open on
+  `fd` into `buf`. Returns the number of bytes actually read (0 at
+  EOF), or a negative `<errno.h>` code on failure.
+- `int close(int fd)` — closes `fd`. Returns 0, or a negative
+  `<errno.h>` code on failure.
+- `int64_t lseek(int fd, int64_t offset, int whence)` — moves `fd`'s
+  read/write position. `whence` is `SEEK_SET`/`SEEK_CUR`/`SEEK_END`.
+  Returns the new absolute position, or a negative `<errno.h>` code on
+  failure. Writing past the current end of file (via a forward
+  `lseek`) zero-fills the gap with real allocated bytes, not a logical
+  sparse hole.
 - `int getpid(void)` — returns the calling process's PID.
 - `void yield(void)` — voluntarily gives up the remaining CPU time
   slice to the scheduler.
@@ -22,6 +35,41 @@ alongside the library code that exposes it.
 - `int wait(int pid)` — blocks until the process with the given PID
   exits, reaps it, and returns its exit code. NeoOS-specific: takes
   one specific PID, not "any child".
+- `int mkdir(const char *path)` — creates a new, empty directory.
+  Returns 0, or a negative `<errno.h>` code on failure.
+- `int unlink(const char *path)` — deletes the file at `path`. Returns
+  0, or a negative `<errno.h>` code on failure (including `-EISDIR` if
+  `path` is a directory; there is no `rmdir`).
+- `STDIN_FILENO`/`STDOUT_FILENO`/`STDERR_FILENO` (0/1/2) and
+  `SEEK_SET`/`SEEK_CUR`/`SEEK_END` (0/1/2) constants.
+
+## `<fcntl.h>`
+
+- `int open(const char *path, int flags)` — opens (or, with
+  `O_CREAT`, creates) the file at `path`. Returns a file descriptor,
+  or a negative `<errno.h>` code on failure.
+- `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREAT`, `O_TRUNC`, `O_APPEND`
+  flag constants.
+
+## `<errno.h>`
+
+Every `open`/`read`/`write`/`close`/`lseek`/`mkdir`/`unlink` call
+returns its negative error code directly instead of a bare `-1` --
+there is no separate settable `errno` variable. `spawn`/`wait`/
+`getpid` are unaffected and keep their existing plain `-1`-on-failure
+convention.
+
+- `ENOENT` (2) — path/file not found.
+- `EBADF` (9) — invalid or closed file descriptor.
+- `EEXIST` (17) — `mkdir`/`open(O_CREAT)` target already exists.
+- `ENOTDIR` (20) — a path component used as a directory isn't one.
+- `EISDIR` (21) — `unlink` called on a directory.
+- `EINVAL` (22) — bad argument (e.g. an `lseek` result would be
+  negative, or an unrecognized `whence`).
+- `EMFILE` (24) — the process's file descriptor table is full (8
+  open files at once, maximum).
+- `ENOSPC` (28) — disk full (no free cluster), or the root directory
+  is full (it has a fixed maximum entry count).
 
 ## `<string.h>`
 
