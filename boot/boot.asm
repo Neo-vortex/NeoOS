@@ -23,8 +23,8 @@ p4_table:
     resb 4096
 p3_table:
     resb 4096
-p2_table:
-    resb 4096
+p2_tables:              ; 4 page directories (2MiB pages each) = 4GiB identity-mapped total
+    resb 4096 * 4
 align 16
 stack_bottom:
     resb 16384
@@ -85,25 +85,37 @@ check_long_mode_supported:
     hlt
     jmp .hang2
 
-; Identity-maps the first 1GiB using 2MiB pages: PML4[0] -> PDPT[0] -> 512 PD entries.
+; Identity-maps the first 4GiB using 2MiB pages: PML4[0] -> PDPT[0..3] ->
+; 512 PD entries each. 4GiB (not 1GiB) is needed because the Local APIC
+; (0xFEE00000) and IOAPIC (0xFEC00000) MMIO regions sit in the standard
+; sub-4GiB MMIO hole, well above the first 1GiB.
 set_up_page_tables:
     mov eax, p3_table
     or eax, 0b11
     mov [p4_table], eax
 
-    mov eax, p2_table
+    mov ecx, 0
+.map_p3_table:
+    mov eax, p2_tables
+    mov edx, ecx
+    shl edx, 12              ; edx = ecx * 4096 (each PD table is 4096 bytes)
+    add eax, edx
     or eax, 0b11
-    mov [p3_table], eax
+    mov [p3_table + ecx * 8], eax
+
+    inc ecx
+    cmp ecx, 4
+    jne .map_p3_table
 
     mov ecx, 0
 .map_p2_table:
     mov eax, 0x200000
     mul ecx
     or eax, 0b10000011      ; present + writable + huge page (2MiB)
-    mov [p2_table + ecx * 8], eax
+    mov [p2_tables + ecx * 8], eax
 
     inc ecx
-    cmp ecx, 512
+    cmp ecx, 2048
     jne .map_p2_table
     ret
 

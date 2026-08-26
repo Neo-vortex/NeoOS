@@ -6,6 +6,7 @@
 #include "idt.h"
 #include "acpi.h"
 #include "pic.h"
+#include "lapic.h"
 
 void kmain(void *multiboot_info) {
     (void)multiboot_info;
@@ -28,6 +29,10 @@ void kmain(void *multiboot_info) {
 
     pic_disable();
     serial_write_string("[pic] disabled\n");
+
+    lapic_init(acpi.lapic_address);
+    serial_write_string("[lapic] enabled, id="); serial_write_hex64(lapic_get_id());
+    serial_write_string("\n");
 
     for (;;) {
         __asm__ volatile ("hlt");
