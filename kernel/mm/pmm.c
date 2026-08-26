@@ -18,6 +18,15 @@ static struct free_block *free_lists[PMM_MAX_ORDER + 1];
 // "is my buddy free" in O(1) instead of walking a free list.
 static uint8_t frame_order[PMM_MAX_FRAMES];
 static uint64_t total_free_frames;
+// One entry per frame: how many live mappings point at it. pmm_alloc()
+// sets this to 1 (sole owner, as always); fork()'s COW duplication is
+// the only caller that ever raises it above 1 (via pmm_frame_share()).
+// pmm_free() decrements instead of unconditionally freeing, so a
+// COW-shared frame only actually returns to the allocator once every
+// sharer has released it -- every pre-existing caller (kernel stacks,
+// page tables, ELF segments) allocates at refcount 1 and frees exactly
+// once, so their behavior is unchanged.
+static uint16_t frame_refcount[PMM_MAX_FRAMES];
 
 static inline uint64_t frame_to_phys(uint64_t frame) {
     return frame * PMM_FRAME_SIZE;
@@ -74,12 +83,25 @@ uint64_t pmm_alloc(unsigned order) {
         list_push(found_order, (struct free_block *)(uintptr_t)buddy_phys);
     }
 
+    for (uint64_t i = 0; i < (1ULL << order); i++) {
+        frame_refcount[phys_to_frame(phys) + i] = 1;
+    }
     total_free_frames -= (1ULL << order);
     return phys;
 }
 
 void pmm_free(uint64_t phys_addr, unsigned order) {
     uint64_t frame = phys_to_frame(phys_addr);
+
+    for (uint64_t i = 0; i < (1ULL << order); i++) {
+        frame_refcount[frame + i]--;
+    }
+    for (uint64_t i = 0; i < (1ULL << order); i++) {
+        if (frame_refcount[frame + i] != 0) {
+            return; // still shared -- not actually free yet
+        }
+    }
+
     total_free_frames += (1ULL << order); // caller's block wasn't counted as free before this call
 
     while (order < PMM_MAX_ORDER) {
@@ -143,6 +165,14 @@ void pmm_init(void *multiboot_info) {
     }
     for (uint64_t i = 0; i < PMM_MAX_FRAMES; i++) {
         frame_order[i] = ORDER_NONE;
+        // Seeded to 1 (not 0), matching pmm_alloc()'s "sole owner"
+        // convention -- add_region() below seeds the free lists by
+        // calling pmm_free() on every available frame for the first
+        // time, and pmm_free() unconditionally decrements before
+        // checking for zero. Starting from 0 would underflow the
+        // uint16_t and every frame would look permanently "still
+        // shared," so nothing would ever actually reach the free list.
+        frame_refcount[i] = 1;
     }
     total_free_frames = 0;
 
@@ -199,6 +229,14 @@ void pmm_init(void *multiboot_info) {
     serial_write_string(" MiB)\n");
 }
 
+void pmm_frame_share(uint64_t phys) {
+    frame_refcount[phys_to_frame(phys)]++;
+}
+
+unsigned pmm_frame_refcount(uint64_t phys) {
+    return frame_refcount[phys_to_frame(phys)];
+}
+
 void pmm_selftest(void) {
     uint64_t before = total_free_frames;
 
@@ -230,6 +268,31 @@ void pmm_selftest(void) {
     }
     if (total_free_frames != before) {
         serial_write_string("[pmm] selftest FAILED: frame count did not return to baseline\n");
+        return;
+    }
+
+    uint64_t shared_block = pmm_alloc(0);
+    if (!shared_block) {
+        serial_write_string("[pmm] selftest FAILED: share test alloc returned 0\n");
+        return;
+    }
+    if (pmm_frame_refcount(shared_block) != 1) {
+        serial_write_string("[pmm] selftest FAILED: fresh alloc refcount != 1\n");
+        return;
+    }
+    pmm_frame_share(shared_block);
+    if (pmm_frame_refcount(shared_block) != 2) {
+        serial_write_string("[pmm] selftest FAILED: refcount != 2 after share\n");
+        return;
+    }
+    pmm_free(shared_block, 0); // drops to 1 -- must NOT return to the free list yet
+    if (frame_order[phys_to_frame(shared_block)] != ORDER_NONE) {
+        serial_write_string("[pmm] selftest FAILED: shared frame freed while still referenced\n");
+        return;
+    }
+    pmm_free(shared_block, 0); // drops to 0 -- now it should actually free
+    if (frame_order[phys_to_frame(shared_block)] == ORDER_NONE) {
+        serial_write_string("[pmm] selftest FAILED: frame not returned to free list at refcount 0\n");
         return;
     }
 
