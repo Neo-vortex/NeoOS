@@ -13,10 +13,11 @@
 #include "mm/pmm.h"
 #include "mm/paging.h"
 #include "mm/heap.h"
+#include "ata.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
-    serial_write_string("NeoOS booting (milestone 3: memory management)\n");
+    serial_write_string("NeoOS booting (milestone 4: storage)\n");
     serial_write_string("[boot] kmain address=");
     serial_write_hex64((uint64_t)(uintptr_t)kmain);
     serial_write_string("\n");
@@ -61,6 +62,9 @@ void kmain(void *multiboot_info) {
 
     heap_init();
     heap_selftest();
+
+    struct ata_identify_info ata_info;
+    ata_identify(&ata_info);
 
     serial_write_string("NeoOS: interrupts enabled, entering idle loop\n");
     __asm__ volatile ("sti");

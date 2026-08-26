@@ -1,0 +1,101 @@
+#include "ata.h"
+#include "io.h"
+#include "serial.h"
+
+#define ATA_DATA        0x1F0
+#define ATA_SECCOUNT    0x1F2
+#define ATA_LBA_LOW     0x1F3
+#define ATA_LBA_MID     0x1F4
+#define ATA_LBA_HIGH    0x1F5
+#define ATA_DRIVE_HEAD  0x1F6
+#define ATA_STATUS      0x1F7
+#define ATA_COMMAND     0x1F7
+
+#define ATA_STATUS_BSY  0x80
+#define ATA_STATUS_DRQ  0x08
+#define ATA_STATUS_ERR  0x01
+
+#define ATA_CMD_IDENTIFY      0xEC
+#define ATA_CMD_READ_SECTORS  0x20
+
+#define ATA_POLL_MAX_ITERATIONS 100000
+
+// Bounded poll -- a drive that never reaches the requested status
+// within this many reads is treated as a hardware failure, logged and
+// reported to the caller, rather than hanging forever.
+static int ata_wait_status(uint8_t mask, uint8_t value) {
+    for (uint32_t i = 0; i < ATA_POLL_MAX_ITERATIONS; i++) {
+        if ((inb(ATA_STATUS) & mask) == value) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int ata_identify(struct ata_identify_info *info) {
+    outb(ATA_DRIVE_HEAD, 0xA0); // master drive
+    outb(ATA_SECCOUNT, 0);
+    outb(ATA_LBA_LOW, 0);
+    outb(ATA_LBA_MID, 0);
+    outb(ATA_LBA_HIGH, 0);
+    outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
+
+    if (inb(ATA_STATUS) == 0) {
+        serial_write_string("[ata] identify FAILED: no drive present\n");
+        return 0;
+    }
+    if (!ata_wait_status(ATA_STATUS_BSY, 0)) {
+        serial_write_string("[ata] identify FAILED: BSY never cleared\n");
+        return 0;
+    }
+    if (!ata_wait_status(ATA_STATUS_DRQ, ATA_STATUS_DRQ)) {
+        serial_write_string("[ata] identify FAILED: DRQ never set\n");
+        return 0;
+    }
+
+    uint16_t identify_data[256];
+    for (int i = 0; i < 256; i++) {
+        identify_data[i] = inw(ATA_DATA);
+    }
+
+    info->sector_count = (uint32_t)identify_data[61] << 16 | identify_data[60];
+
+    serial_write_string("[ata] drive identified, sectors=");
+    serial_write_hex64(info->sector_count);
+    serial_write_string(" (");
+    serial_write_hex64((uint64_t)info->sector_count * ATA_SECTOR_SIZE / (1024 * 1024));
+    serial_write_string(" MiB)\n");
+    return 1;
+}
+
+int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer) {
+    uint16_t *out = (uint16_t *)buffer;
+
+    outb(ATA_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F)); // LBA mode, master drive
+    outb(ATA_SECCOUNT, count);
+    outb(ATA_LBA_LOW, (uint8_t)(lba & 0xFF));
+    outb(ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
+    outb(ATA_LBA_HIGH, (uint8_t)((lba >> 16) & 0xFF));
+    outb(ATA_COMMAND, ATA_CMD_READ_SECTORS);
+
+    for (uint8_t s = 0; s < count; s++) {
+        if (!ata_wait_status(ATA_STATUS_BSY, 0)) {
+            serial_write_string("[ata] read FAILED: BSY never cleared\n");
+            return 0;
+        }
+        uint8_t status = inb(ATA_STATUS);
+        if (status & ATA_STATUS_ERR) {
+            serial_write_string("[ata] read FAILED: ERR bit set\n");
+            return 0;
+        }
+        if (!(status & ATA_STATUS_DRQ) && !ata_wait_status(ATA_STATUS_DRQ, ATA_STATUS_DRQ)) {
+            serial_write_string("[ata] read FAILED: DRQ never set\n");
+            return 0;
+        }
+
+        for (int i = 0; i < 256; i++) {
+            out[(uint32_t)s * 256 + i] = inw(ATA_DATA);
+        }
+    }
+    return 1;
+}

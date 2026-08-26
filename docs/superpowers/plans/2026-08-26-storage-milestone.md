@@ -18,6 +18,7 @@
 - Disk image layout (fixed for this milestone, built by a new Makefile target): a 32MiB raw image, FAT16, containing `/HELLO.TXT` (24 bytes, text), `/BIGFILE.TXT` (8192 bytes, spans exactly 4 clusters at this volume's 2048-byte cluster size — this is what exercises multi-cluster FAT chain-walking), and `/DIR/NESTED.TXT` (21 bytes, text) in a subdirectory.
 - All new kernel sources (`ata.c/.h`, `fat16.c/.h`) go directly in `kernel/` (not `kernel/mm/`) — the existing `kernel/*.c` wildcard in the Makefile already picks them up; no Makefile source-discovery changes are needed, only the new disk-image target and updating `run` to attach the drive.
 - Verification throughout uses headless QEMU exactly as in prior milestones: `-serial file:<path>` for grep-able diagnostics, plus host-side `mdir`/`mtype` (from `mtools`) to independently verify the disk image's own contents before any kernel code touches it.
+- **Every QEMU invocation with both `-cdrom` and the disk `-drive` attached needs `-boot order=d`** (found necessary in Task 2, not anticipated when this plan was written): once a second drive is attached, QEMU's default boot order tries the raw hard disk before the CD-ROM, so GRUB never loads and the kernel never boots — total silence on serial, no exceptions, just a hang. `-boot order=d` forces CD-ROM-first boot. This is why the `run` target's recipe and every verification command below include it.
 
 ---
 
@@ -65,7 +66,7 @@ Add `disk-image` to the `.PHONY` line (it must always re-run when asked, since `
 
 ```makefile
 run: iso disk-image
-	qemu-system-x86_64 -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
+	qemu-system-x86_64 -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
 ```
 
 - [ ] **Step 4: Build and verify the image independently of the kernel**
@@ -288,7 +289,7 @@ int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer) {
 
 Run: `make clean && make disk-image && make iso`, then boot with the drive attached and serial redirected:
 ```bash
-qemu-system-x86_64 -cdrom build/neoos.iso -drive file=build/disk.img,format=raw -serial file:/tmp/neoos.log -display none -no-reboot -no-shutdown
+qemu-system-x86_64 -boot order=d -cdrom build/neoos.iso -drive file=build/disk.img,format=raw -serial file:/tmp/neoos.log -display none -no-reboot -no-shutdown
 ```
 Expected: `grep '\[ata\]' /tmp/neoos.log` shows `[ata] drive identified, sectors=0x0000000000010000 (0x0000000000000020 MiB)` (65536 sectors = 32MiB, matching the image built in Task 1), with all prior milestones' log lines still present and no exceptions.
 
@@ -729,7 +730,7 @@ git commit -m "Add FAT16 filesystem: mount, path lookup, and file reading"
 Run: `make clean && make disk-image && make iso`, then:
 ```bash
 rm -f /tmp/neoos.log
-qemu-system-x86_64 -cdrom build/neoos.iso -drive file=build/disk.img,format=raw -serial file:/tmp/neoos.log -display none -no-reboot -no-shutdown -d int,guest_errors -D /tmp/qemu-int.log &
+qemu-system-x86_64 -boot order=d -cdrom build/neoos.iso -drive file=build/disk.img,format=raw -serial file:/tmp/neoos.log -display none -no-reboot -no-shutdown -d int,guest_errors -D /tmp/qemu-int.log &
 sleep 8
 kill %1 2>/dev/null
 grep -c FAILED /tmp/neoos.log

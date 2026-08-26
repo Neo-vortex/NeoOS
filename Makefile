@@ -60,7 +60,7 @@ $(DISK_IMG):
 disk-image: $(DISK_IMG)
 
 run: iso disk-image
-	qemu-system-x86_64 -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
+	qemu-system-x86_64 -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO_DIR)
