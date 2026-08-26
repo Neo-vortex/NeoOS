@@ -70,8 +70,16 @@ void isr_handler(struct registers *regs) {
     }
 
     if (regs->vector_number == VECTOR_TIMER) {
-        timer_handler();
+        // EOI must go out BEFORE timer_handler(), not after: timer_handler
+        // may call schedule(), which can switch to a different task via a
+        // bare `ret` that never "returns" here in the traditional sense
+        // until the task we just preempted is itself resumed later. EOI'ing
+        // after the call would defer it indefinitely, and the LAPIC
+        // withholds all further timer interrupts until it arrives --
+        // deadlocking preemption entirely (confirmed: without this, tick
+        // logging stops completely the moment a switch happens mid-handler).
         lapic_send_eoi();
+        timer_handler();
         return;
     }
 

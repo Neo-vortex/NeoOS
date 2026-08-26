@@ -2,10 +2,13 @@
 #include "pit.h"
 #include "lapic.h"
 #include "serial.h"
+#include "process.h"
 
 #define TICKS_PER_LOG 100 // 100Hz timer -> log once per second
+#define TIMESLICE_TICKS 5  // 100Hz timer, 5 ticks = 50ms per time slice
 
 static volatile uint64_t tick_count = 0;
+static uint32_t timeslice_remaining = TIMESLICE_TICKS;
 
 void timer_handler(void) {
     tick_count++;
@@ -13,6 +16,11 @@ void timer_handler(void) {
         serial_write_string("[timer] tick=");
         serial_write_hex64(tick_count);
         serial_write_string("\n");
+    }
+
+    if (--timeslice_remaining == 0) {
+        timeslice_remaining = TIMESLICE_TICKS;
+        schedule();
     }
 }
 

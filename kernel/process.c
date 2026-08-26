@@ -5,6 +5,7 @@
 #include "serial.h"
 
 extern void context_switch(uint64_t *old_rsp, uint64_t *new_rsp);
+extern void kernel_thread_entry_trampoline(void);
 
 static struct task tasks[MAX_TASKS];
 static struct task *ready_head;
@@ -63,7 +64,8 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     uint64_t stack_top = (uint64_t)(uintptr_t)phys_to_virt(stack_phys) + (PMM_FRAME_SIZE << KERNEL_STACK_ORDER);
 
     uint64_t *sp = (uint64_t *)stack_top;
-    *(--sp) = (uint64_t)entry;
+    *(--sp) = (uint64_t)entry;                            // popped by kernel_thread_entry_trampoline
+    *(--sp) = (uint64_t)kernel_thread_entry_trampoline;    // context_switch's `ret` lands here
     *(--sp) = 0; // rbp
     *(--sp) = 0; // rbx
     *(--sp) = 0; // r12

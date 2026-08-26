@@ -18,6 +18,9 @@
 - **Every process's PML4 shares three entries with the kernel's own live PML4:** index 0 (milestone 3's permanent low identity map — `pmm.c`/`paging.c` internals still dereference physical addresses directly and rely on it), index 256 (the physmap), index 511 (the kernel's higher-half alias). Without these, kernel code executing on behalf of a syscall or interrupt taken while that process's page tables are loaded would immediately fault.
 - **Context switching is the minimal callee-saved kind** (`RBX`, `RBP`, `R12`-`R15`, plus `RSP`) via `context_switch(&old_rsp, &new_rsp)` in `kernel/context_switch.asm` — not a full trap-frame swap. A brand-new task's kernel stack is pre-populated with a fake initial frame so `context_switch`'s own `ret` lands it in either a plain C entry function (kernel-mode-only tasks, Task 3) or `kernel_thread_trampoline` (ring-3 tasks, Task 5), which then transitions into user mode via a manufactured `iretq` frame — not `SYSRET`, since this isn't a return from a syscall.
 - **Scheduler is single-queue round-robin**, no priorities. `MAX_TASKS = 16`. Time slice = 5 timer ticks (at the existing 100Hz LAPIC timer, 50ms). `BLOCKED` tasks (waiting in `wait`) sit outside the ready queue and are re-enqueued when the task they're waiting on exits.
+- **A brand-new task's first entry must explicitly `sti`** (found necessary in Task 4, not anticipated when this plan was written): its fake initial stack frame makes `context_switch`'s `ret` jump straight into code with no `iretq` in between, so if that task's first scheduling-in happened from inside an interrupt handler (timer preemption of some other task), the CPU's `IF` flag — cleared by the interrupt-gate entry — would otherwise stay 0 forever, permanently masking the timer. `context_switch.asm`'s `kernel_thread_entry_trampoline` (Task 4) and `kernel_thread_trampoline` (Task 5) both handle this — the former with an explicit `sti`, the latter because its manufactured `iretq` frame sets `RFLAGS` with `IF` already on.
+- **The timer IRQ's `lapic_send_eoi()` must run *before* calling anything that might `schedule()` away, not after** (found necessary in Task 4): `timer_handler()` can switch to a different task via a `ret` that doesn't "return" here in the traditional sense until the *preempted* task is itself resumed later — EOI'ing after the call would defer it indefinitely, and the LAPIC withholds all further timer interrupts of that vector until it arrives, deadlocking preemption entirely after exactly one switch. `isr.c`'s `VECTOR_TIMER` case sends EOI first.
+- **Round-robin fairness only guarantees turn *order*, not equal work done per turn.** Two tasks running the identical tight busy-loop can complete very different amounts of work within their nominally-equal time slices under QEMU's TCG emulation (observed: one consistently completing exactly one iteration per turn, the other tens) — this is JIT/translation-cache behavior in the emulator, not a scheduler defect; verified separately via direct tick-count instrumentation that every `schedule()` call fires at a precise 5-tick boundary with correct alternation.
 - **No syscall argument/pointer validation** (tracked security gap, deferred — see the spec's Out of Scope). **No stack reclamation on process exit** — a reaped task's kernel/user stack frames are never freed back to the buddy allocator in this milestone; an accepted limitation given the small, finite number of test processes involved.
 - Verification throughout uses headless QEMU exactly as in prior milestones: `-serial file:<path>` for grep-able diagnostics, `-boot order=d` whenever the FAT16 disk is attached (milestone 4's fix), `-no-reboot -no-shutdown -d int,guest_errors -D <path>` to catch faults as clean logs instead of silent reboots.
 
@@ -573,10 +576,12 @@ git commit -m "Add task representation, context switch, and round-robin schedule
 **Files:**
 - Modify: `kernel/timer.c` (time-slice countdown calls `schedule()`)
 - Modify: `kernel/kernel.c` (test threads no longer call `schedule()` manually; each does enough work per iteration that the timer visibly preempts it mid-loop)
+- Modify: `kernel/isr.c` (send the timer's EOI *before* calling `timer_handler()`, not after — see Step 3)
+- Modify: `kernel/context_switch.asm`, `kernel/process.c` (a brand-new task's first entry must explicitly re-enable interrupts — see Step 4)
 
 **Interfaces:**
 - Consumes: `schedule()` (Task 3).
-- Produces: nothing new — this task only changes *when* `schedule()` gets called, not its signature.
+- Produces: `kernel_thread_entry_trampoline` (assembly-only symbol, referenced from `process.c`'s `task_create_kernel_thread`). Nothing else — this task otherwise only changes *when* `schedule()` gets called, not its signature.
 
 - [ ] **Step 1: Add time-slice countdown to the timer handler**
 
@@ -644,15 +649,67 @@ static void kernel_thread_b(void) {
 
 The initial `schedule()` call in `kmain` that kicks off multitasking stays exactly as Task 3 left it.
 
-- [ ] **Step 3: Build and verify**
+- [ ] **Step 3: Send the timer's EOI before, not after, calling the handler that may switch tasks**
+
+`timer_handler()` can call `schedule()`, which can switch to a different task via a bare `ret` that doesn't "return" here in the traditional sense until the task being *preempted* is itself resumed later. If EOI is sent only after `timer_handler()` returns, it gets deferred indefinitely — and the LAPIC withholds all further interrupts of that vector until its EOI arrives, deadlocking preemption after exactly one switch (confirmed: without this fix, `[timer] tick=` logging — which needs 100 ticks to fire once — never appears again after the first switch, even after 15+ seconds).
+
+```c
+// kernel/isr.c's VECTOR_TIMER case in isr_handler, reordered:
+    if (regs->vector_number == VECTOR_TIMER) {
+        lapic_send_eoi();
+        timer_handler();
+        return;
+    }
+```
+
+- [ ] **Step 4: Make a brand-new task's first entry re-enable interrupts**
+
+A brand-new task's fake initial stack frame makes `context_switch`'s `ret` jump straight into C code with no `iretq` in between — but `iretq` is the only thing that normally restores `RFLAGS` (including `IF`) when resuming a task. If this task's first scheduling-in happens from inside an interrupt handler (timer preemption of some other task), the CPU's `IF` flag is 0 at that point (cleared by the interrupt-gate entry) and would stay 0 forever once this task starts running normally, permanently masking the timer (confirmed via QEMU's `info registers`: `RFL` showed `IF` clear while the newly-scheduled thread ran). Add a small trampoline that explicitly re-enables interrupts before running the real entry point:
+
+```nasm
+; Added to kernel/context_switch.asm, after context_switch's `ret`:
+
+; Bootstraps a brand-new kernel-mode task's very first run. Reached
+; via a bare `ret` out of context_switch (see task_create_kernel_thread's
+; initial stack setup in process.c), never called directly.
+global kernel_thread_entry_trampoline
+
+kernel_thread_entry_trampoline:
+    pop rax   ; entry function pointer, planted by task_create_kernel_thread
+    sti
+    call rax
+.hang:        ; entry should never return, but halt safely if it does
+    hlt
+    jmp .hang
+```
+
+```c
+// kernel/process.c: task_create_kernel_thread's initial stack setup
+// gains one more planted value (shown in context):
+extern void context_switch(uint64_t *old_rsp, uint64_t *new_rsp);
+extern void kernel_thread_entry_trampoline(void);
+
+/* ... inside task_create_kernel_thread, replacing the stack setup: */
+    uint64_t *sp = (uint64_t *)stack_top;
+    *(--sp) = (uint64_t)entry;                            // popped by kernel_thread_entry_trampoline
+    *(--sp) = (uint64_t)kernel_thread_entry_trampoline;    // context_switch's `ret` lands here
+    *(--sp) = 0; // rbp
+    *(--sp) = 0; // rbx
+    *(--sp) = 0; // r12
+    *(--sp) = 0; // r13
+    *(--sp) = 0; // r14
+    *(--sp) = 0; // r15
+```
+
+- [ ] **Step 5: Build and verify**
 
 Run: `make clean && make disk-image && make iso`, boot as before, let it run several seconds before stopping QEMU.
-Expected: serial shows `[thread-a]` and `[thread-b]` lines interleaved in **bursts** (several consecutive lines from one thread, then a switch to the other) rather than Task 3's strict single-line alternation — proof that the *timer*, not a manual call, is doing the switching. If the log instead shows one thread completing all 200 iterations before the other starts at all, the busy-wait isn't long enough relative to `TIMESLICE_TICKS`; increase the spin count (host CPU speed under QEMU TCG emulation varies) and rebuild until bursty interleaving is visible. No `FAILED`, no exceptions either way.
+Expected: serial shows `[thread-a]` and `[thread-b]` lines interleaved in **bursts** (several consecutive lines from one thread, then a switch to the other) rather than Task 3's strict single-line alternation — proof that the *timer*, not a manual call, is doing the switching. `[timer] tick=` lines continue appearing throughout (proof the timer keeps firing after multiple switches, not just the first one). Burst *sizes* may vary substantially and unevenly between the two threads (a QEMU TCG JIT/translation-cache characteristic of two competing tight loops, not a scheduler defect) — what matters is that both threads keep getting turns throughout the run, not that turns are equal-sized. If the log instead shows one thread completing all 200 iterations before the other starts at all, the busy-wait isn't long enough relative to `TIMESLICE_TICKS`; increase the spin count and rebuild. No `FAILED`, no exceptions either way.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add kernel/timer.c kernel/kernel.c
+git add kernel/timer.c kernel/kernel.c kernel/isr.c kernel/context_switch.asm kernel/process.c
 git commit -m "Wire scheduler into timer IRQ for preemptive multitasking"
 ```
 

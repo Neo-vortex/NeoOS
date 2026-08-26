@@ -33,3 +33,26 @@ context_switch:
     pop rbx
     pop rbp
     ret
+
+; Bootstraps a brand-new kernel-mode task's very first run. Reached
+; via a bare `ret` out of context_switch (see task_create_kernel_thread's
+; initial stack setup in process.c), never called directly.
+;
+; A brand-new task's fake initial frame makes context_switch's `ret`
+; jump straight into C code, with no iretq in between -- but iretq is
+; the ONLY thing that normally restores RFLAGS (including IF) when
+; resuming a task. If this task's first scheduling-in happened from
+; inside an interrupt handler (timer preemption of some other task),
+; the CPU's IF flag is 0 at that point (cleared by the interrupt-gate
+; entry) and would stay 0 forever once this task starts running
+; normally, permanently masking the timer. Explicitly re-enabling
+; interrupts here, before running the real entry point, fixes that.
+global kernel_thread_entry_trampoline
+
+kernel_thread_entry_trampoline:
+    pop rax   ; entry function pointer, planted by task_create_kernel_thread
+    sti
+    call rax
+.hang:        ; entry should never return, but halt safely if it does
+    hlt
+    jmp .hang

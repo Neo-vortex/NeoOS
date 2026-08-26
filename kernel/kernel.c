@@ -18,11 +18,12 @@
 #include "process.h"
 
 static void kernel_thread_a(void) {
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 200; i++) {
         serial_write_string("[thread-a] iteration=");
         serial_write_hex64((uint64_t)i);
         serial_write_string("\n");
-        schedule();
+        for (volatile uint32_t spin = 0; spin < 5000000; spin++) {
+        }
     }
     for (;;) {
         __asm__ volatile ("hlt");
@@ -30,11 +31,12 @@ static void kernel_thread_a(void) {
 }
 
 static void kernel_thread_b(void) {
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 200; i++) {
         serial_write_string("[thread-b] iteration=");
         serial_write_hex64((uint64_t)i);
         serial_write_string("\n");
-        schedule();
+        for (volatile uint32_t spin = 0; spin < 5000000; spin++) {
+        }
     }
     for (;;) {
         __asm__ volatile ("hlt");
