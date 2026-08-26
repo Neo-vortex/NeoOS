@@ -17,6 +17,8 @@
 
 #define ATA_CMD_IDENTIFY      0xEC
 #define ATA_CMD_READ_SECTORS  0x20
+#define ATA_CMD_WRITE_SECTORS 0x30
+#define ATA_CMD_CACHE_FLUSH   0xE7
 
 #define ATA_POLL_MAX_ITERATIONS 100000
 
@@ -96,6 +98,44 @@ int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer) {
         for (int i = 0; i < 256; i++) {
             out[(uint32_t)s * 256 + i] = inw(ATA_DATA);
         }
+    }
+    return 1;
+}
+
+int ata_write_sectors(uint32_t lba, uint8_t count, const void *buffer) {
+    const uint16_t *in = (const uint16_t *)buffer;
+
+    outb(ATA_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F)); // LBA mode, master drive
+    outb(ATA_SECCOUNT, count);
+    outb(ATA_LBA_LOW, (uint8_t)(lba & 0xFF));
+    outb(ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
+    outb(ATA_LBA_HIGH, (uint8_t)((lba >> 16) & 0xFF));
+    outb(ATA_COMMAND, ATA_CMD_WRITE_SECTORS);
+
+    for (uint8_t s = 0; s < count; s++) {
+        if (!ata_wait_status(ATA_STATUS_BSY, 0)) {
+            serial_write_string("[ata] write FAILED: BSY never cleared\n");
+            return 0;
+        }
+        uint8_t status = inb(ATA_STATUS);
+        if (status & ATA_STATUS_ERR) {
+            serial_write_string("[ata] write FAILED: ERR bit set\n");
+            return 0;
+        }
+        if (!(status & ATA_STATUS_DRQ) && !ata_wait_status(ATA_STATUS_DRQ, ATA_STATUS_DRQ)) {
+            serial_write_string("[ata] write FAILED: DRQ never set\n");
+            return 0;
+        }
+
+        for (int i = 0; i < 256; i++) {
+            outw(ATA_DATA, in[(uint32_t)s * 256 + i]);
+        }
+    }
+
+    outb(ATA_COMMAND, ATA_CMD_CACHE_FLUSH);
+    if (!ata_wait_status(ATA_STATUS_BSY, 0)) {
+        serial_write_string("[ata] write FAILED: cache flush BSY never cleared\n");
+        return 0;
     }
     return 1;
 }

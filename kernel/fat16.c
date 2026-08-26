@@ -51,6 +51,7 @@ static uint32_t root_dir_start_lba;
 static uint32_t root_dir_sector_count;
 static uint32_t data_start_lba;
 static uint16_t root_entry_count;
+static uint16_t sectors_per_fat_g;
 
 static uint32_t cluster_to_lba(uint16_t cluster) {
     return data_start_lba + (uint32_t)(cluster - 2) * sectors_per_cluster;
@@ -67,6 +68,7 @@ int fat16_mount(void) {
     bytes_per_sector = bpb->bytes_per_sector;
     sectors_per_cluster = bpb->sectors_per_cluster;
     root_entry_count = bpb->root_entry_count;
+    sectors_per_fat_g = bpb->sectors_per_fat;
 
     fat_start_lba = bpb->reserved_sector_count;
     root_dir_start_lba = fat_start_lba + (uint32_t)bpb->num_fats * bpb->sectors_per_fat;
@@ -94,6 +96,42 @@ static uint16_t fat16_next_cluster(uint16_t cluster) {
     ata_read_sectors(fat_sector, 1, sector);
     uint16_t *entries = (uint16_t *)sector;
     return entries[offset_in_sector / 2];
+}
+
+static void fat16_set_next_cluster(uint16_t cluster, uint16_t value) {
+    uint32_t fat_offset = (uint32_t)cluster * 2;
+    uint32_t fat_sector = fat_start_lba + fat_offset / bytes_per_sector;
+    uint32_t offset_in_sector = fat_offset % bytes_per_sector;
+
+    uint8_t sector[SECTOR_SIZE];
+    ata_read_sectors(fat_sector, 1, sector);
+    uint16_t *entries = (uint16_t *)sector;
+    entries[offset_in_sector / 2] = value;
+    ata_write_sectors(fat_sector, 1, sector);
+}
+
+// Scans the FAT linearly from cluster 2 for a free (0x0000) entry,
+// marks it as a fresh chain's end (0xFFFF), and returns it. Returns 0
+// if the disk is full.
+static uint16_t fat16_alloc_cluster(void) {
+    uint32_t total_entries = ((uint32_t)sectors_per_fat_g * bytes_per_sector) / 2;
+    for (uint16_t cluster = 2; cluster < total_entries; cluster++) {
+        if (fat16_next_cluster(cluster) == 0x0000) {
+            fat16_set_next_cluster(cluster, 0xFFFF);
+            return cluster;
+        }
+    }
+    return 0;
+}
+
+// Walks a cluster chain from first_cluster, zeroing every FAT entry.
+static void fat16_free_chain(uint16_t first_cluster) {
+    uint16_t cluster = first_cluster;
+    while (cluster >= 2 && cluster < FAT16_EOC_MIN) {
+        uint16_t next = fat16_next_cluster(cluster);
+        fat16_set_next_cluster(cluster, 0x0000);
+        cluster = next;
+    }
 }
 
 uint32_t fat16_read_file(uint16_t first_cluster, uint32_t size, void *buffer) {
@@ -325,4 +363,49 @@ void fat16_selftest(void) {
 
     kfree(buffer);
     serial_write_string("[fat16] selftest passed\n");
+}
+
+void fat16_write_selftest(void) {
+    uint16_t cluster = fat16_alloc_cluster();
+    if (cluster == 0) {
+        serial_write_string("[fat16] write selftest FAILED: alloc_cluster returned 0\n");
+        return;
+    }
+
+    uint8_t write_buf[SECTOR_SIZE];
+    for (uint32_t i = 0; i < SECTOR_SIZE; i++) {
+        write_buf[i] = (uint8_t)(i & 0xFF);
+    }
+    uint32_t lba = cluster_to_lba(cluster);
+    if (!ata_write_sectors(lba, 1, write_buf)) {
+        serial_write_string("[fat16] write selftest FAILED: ata_write_sectors failed\n");
+        return;
+    }
+
+    uint8_t read_buf[SECTOR_SIZE];
+    if (!ata_read_sectors(lba, 1, read_buf)) {
+        serial_write_string("[fat16] write selftest FAILED: ata_read_sectors failed\n");
+        return;
+    }
+    for (uint32_t i = 0; i < SECTOR_SIZE; i++) {
+        if (read_buf[i] != write_buf[i]) {
+            serial_write_string("[fat16] write selftest FAILED: byte mismatch at offset ");
+            serial_write_hex64(i);
+            serial_write_string("\n");
+            return;
+        }
+    }
+
+    if (fat16_next_cluster(cluster) < FAT16_EOC_MIN) {
+        serial_write_string("[fat16] write selftest FAILED: newly allocated cluster not marked EOC\n");
+        return;
+    }
+
+    fat16_free_chain(cluster);
+    if (fat16_next_cluster(cluster) != 0x0000) {
+        serial_write_string("[fat16] write selftest FAILED: freed cluster not zeroed in FAT\n");
+        return;
+    }
+
+    serial_write_string("[fat16] write selftest passed\n");
 }

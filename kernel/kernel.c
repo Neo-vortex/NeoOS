@@ -71,6 +71,7 @@ void kmain(void *multiboot_info) {
 
     fat16_mount();
     fat16_selftest();
+    fat16_write_selftest();
 
     process_init();
     syscall_init();

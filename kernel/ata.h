@@ -18,4 +18,10 @@ int ata_identify(struct ata_identify_info *info);
 // 0 on failure (logged to serial).
 int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer);
 
+// Writes `count` (1-255) sectors of `buffer` (must be at least count *
+// ATA_SECTOR_SIZE bytes) to disk starting at `lba`, flushing the
+// drive's cache before returning so the write is durable. Returns 1
+// on success, 0 on failure (logged to serial).
+int ata_write_sectors(uint32_t lba, uint8_t count, const void *buffer);
+
 #endif

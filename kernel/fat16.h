@@ -5,6 +5,7 @@
 
 int fat16_mount(void);
 void fat16_selftest(void);
+void fat16_write_selftest(void);
 
 // Looks up a path like "/DIR/FILE.TXT" (8.3 components only). On
 // success returns 1 and fills *out_cluster/*out_size; on failure (any
