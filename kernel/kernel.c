@@ -49,6 +49,9 @@ void kmain(void *multiboot_info) {
     serial_write_hex64(acpi.irq1_gsi);
     serial_write_string(" vector=0x21\n");
 
+    serial_write_string("NeoOS: interrupts enabled, entering idle loop\n");
+    __asm__ volatile ("sti");
+
     for (;;) {
         __asm__ volatile ("hlt");
     }

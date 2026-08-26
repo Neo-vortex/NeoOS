@@ -16,8 +16,7 @@ void vga_clear(void) {
 
 void vga_print_string(const char *str) {
     for (int i = 0; str[i] != '\0'; i++) {
-        VGA_BUFFER[i] = (unsigned short)((unsigned char)str[i]) |
-                        (unsigned short)(VGA_COLOR_WHITE_ON_BLACK << 8);
+        vga_putc(str[i]);
     }
 }
 
