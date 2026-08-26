@@ -9,8 +9,9 @@ was added in milestone 5 specifically to avoid `#UD`, since FPU/SSE
 CPU state is never initialized (no CR0/CR4 setup, no FXSAVE/FXRSTOR
 anywhere, `context_switch.asm` only saves callee-saved GPRs xv6-style).
 This milestone adds that missing state management for user processes.
-First of a four-milestone sequence agreed with the user: SSE → VFS →
-copy-on-write VM → SMP.
+First of a four-milestone sequence agreed with the user: SSE →
+copy-on-write VM → VFS → SMP (order revised after this milestone
+shipped; see `docs/superpowers/specs/2026-08-27-cow-fork-exec-design.md`).
 
 ## Success criteria
 
