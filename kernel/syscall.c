@@ -2,7 +2,7 @@
 #include "gdt.h"
 #include "serial.h"
 #include "process.h"
-#include "fs/fatfs.h"
+#include "fs/vfs.h"
 #include "errno.h"
 
 #define MSR_EFER   0xC0000080
@@ -118,21 +118,14 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
                 return -EBADF;
             }
             fs_lock_acquire();
-            uint16_t new_cluster;
-            uint32_t new_size;
-            int written = fat16_write_file(f->first_cluster, f->size, f->position, buf, (uint32_t)len, &new_cluster, &new_size);
-            if (written < 0) {
+            int64_t n = f->vn->mount->ops->write(f->vn, f->position, buf, (uint32_t)len);
+            if (n < 0) {
                 fs_lock_release();
-                return written;
+                return n;
             }
-            if (new_cluster != f->first_cluster || new_size != f->size) {
-                fat16_update_entry_size(f->dir_entry_lba, f->dir_entry_offset, new_cluster, new_size);
-            }
-            f->first_cluster = new_cluster;
-            f->size = new_size;
-            f->position += (uint32_t)len;
+            f->position += (uint32_t)n;
             fs_lock_release();
-            return written;
+            return n;
         }
         case SYS_READ: {
             int fd = (int)a1;
@@ -148,14 +141,10 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             if (!f->in_use) {
                 return -EBADF;
             }
-            uint32_t remaining = f->size > f->position ? f->size - f->position : 0;
-            uint32_t to_read = (uint32_t)len;
-            if (to_read > remaining) {
-                to_read = remaining;
-            }
-            fat16_read_at(f->first_cluster, f->position, buf, to_read);
-            f->position += to_read;
-            return to_read;
+            int64_t n = f->vn->mount->ops->read(f->vn, f->position, buf, (uint32_t)len);
+            if (n < 0) { return n; }
+            f->position += (uint32_t)n;
+            return n;
         }
         case SYS_GETPID:
             return current_task()->pid;
@@ -178,51 +167,42 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             struct task *task = current_task();
             int slot = -1;
             for (int i = 0; i < MAX_OPEN_FILES; i++) {
-                if (!task->files[i].in_use) {
-                    slot = i;
-                    break;
-                }
+                if (!task->files[i].in_use) { slot = i; break; }
             }
-            if (slot < 0) {
-                return -EMFILE;
-            }
+            if (slot < 0) { return -EMFILE; }
 
             fs_lock_acquire();
 
-            uint16_t cluster;
-            uint32_t size;
-            uint32_t dir_lba;
-            uint16_t dir_offset;
-            int found = fat16_find(path_buf, &cluster, &size, &dir_lba, &dir_offset);
-
-            if (!found) {
-                if (!(flags & O_CREAT)) {
-                    fs_lock_release();
-                    return -ENOENT;
-                }
-                int created = fat16_create_file(path_buf, &dir_lba, &dir_offset);
-                if (created < 0) {
-                    fs_lock_release();
-                    return created;
-                }
-                cluster = 0;
-                size = 0;
-            } else if (flags & O_TRUNC) {
-                fat16_truncate(cluster, dir_lba, dir_offset, &cluster);
-                size = 0;
+            int err = 0;
+            struct vnode *vn = vfs_resolve(path_buf, &err);
+            if (!vn && (flags & O_CREAT)) {
+                char name[VFS_NAME_MAX];
+                struct vnode *dir = vfs_resolve_parent(path_buf, name, &err);
+                if (!dir) { fs_lock_release(); return err; }
+                uint64_t new_id;
+                int rc = dir->mount->ops->create(dir, name, &new_id);
+                if (rc != 0) { vnode_put(dir); fs_lock_release(); return rc; }
+                vn = vnode_get(dir->mount, new_id);
+                vnode_put(dir);
+                if (!vn) { fs_lock_release(); return -ENFILE; }
+            }
+            if (!vn) { fs_lock_release(); return err; }
+            if (vn->type == VNODE_DIR && (flags & (O_WRONLY | O_RDWR))) {
+                vnode_put(vn);
+                fs_lock_release();
+                return -EISDIR;
+            }
+            if (flags & O_TRUNC) {
+                vn->mount->ops->truncate(vn);
             }
 
             fs_lock_release();
 
             struct file_descriptor *f = &task->files[slot];
             f->in_use = 1;
-            f->first_cluster = cluster;
-            f->size = size;
+            f->vn = vn;   // the reference vfs_resolve/vnode_get took is now the fd's
             f->writable = (flags & (O_WRONLY | O_RDWR)) != 0;
-            f->dir_entry_lba = dir_lba;
-            f->dir_entry_offset = dir_offset;
-            f->position = (flags & O_APPEND) ? size : 0;
-
+            f->position = (flags & O_APPEND) ? vn->size : 0;
             return slot + 3;
         }
         case SYS_CLOSE: {
@@ -234,24 +214,36 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             if (!f->in_use) {
                 return -EBADF;
             }
+            vnode_put(f->vn);
+            f->vn = 0;
             f->in_use = 0;
             return 0;
         }
         case SYS_MKDIR: {
             char path_buf[64];
             copy_user_path(a1, a2, path_buf, sizeof(path_buf));
+            char name[VFS_NAME_MAX];
+            int err = 0;
             fs_lock_acquire();
-            int result = fat16_mkdir(path_buf);
+            struct vnode *dir = vfs_resolve_parent(path_buf, name, &err);
+            if (!dir) { fs_lock_release(); return err; }
+            int rc = dir->mount->ops->mkdir(dir, name);
+            vnode_put(dir);
             fs_lock_release();
-            return result;
+            return rc;
         }
         case SYS_UNLINK: {
             char path_buf[64];
             copy_user_path(a1, a2, path_buf, sizeof(path_buf));
+            char name[VFS_NAME_MAX];
+            int err = 0;
             fs_lock_acquire();
-            int result = fat16_delete_entry(path_buf);
+            struct vnode *dir = vfs_resolve_parent(path_buf, name, &err);
+            if (!dir) { fs_lock_release(); return err; }
+            int rc = dir->mount->ops->unlink(dir, name);
+            vnode_put(dir);
             fs_lock_release();
-            return result;
+            return rc;
         }
         case SYS_LSEEK: {
             int fd = (int)a1;
@@ -268,7 +260,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             switch (whence) {
                 case SEEK_SET: base = 0; break;
                 case SEEK_CUR: base = (int64_t)f->position; break;
-                case SEEK_END: base = (int64_t)f->size; break;
+                case SEEK_END: base = (int64_t)f->vn->size; break;
                 default: return -EINVAL;
             }
             int64_t new_position = base + offset;

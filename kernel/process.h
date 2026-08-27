@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "cpu.h"
+#include "fs/vfs.h"
 
 #define MAX_TASKS 16
 #define KERNEL_STACK_ORDER 2 // 4 frames = 16KiB
@@ -28,12 +29,9 @@ enum task_state { TASK_UNUSED, TASK_READY, TASK_RUNNING, TASK_BLOCKED, TASK_ZOMB
 
 struct file_descriptor {
     int in_use;
-    uint16_t first_cluster; // 0 = no clusters allocated yet
-    uint32_t size;
-    uint32_t position;
+    struct vnode *vn;   // reference held; released by close/exit
+    uint32_t position;  // per-fd, NOT shared across fork -- see docs/stdlib.md
     int writable;
-    uint32_t dir_entry_lba;
-    uint16_t dir_entry_offset;
 };
 
 struct task {

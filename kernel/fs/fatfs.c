@@ -2,6 +2,25 @@
 #include "../ata.h"
 #include "../serial.h"
 #include "../mm/heap.h"
+
+// The legacy single-volume API. No longer declared in fatfs.h -- the
+// VFS is the only way in from outside this file -- but the two
+// selftests below still drive the driver's internals through it, so
+// the prototypes live here instead.
+uint32_t fat16_read_file(uint16_t first_cluster, uint32_t size, void *buffer);
+void fat16_read_at(uint16_t first_cluster, uint32_t position, void *buf, uint32_t len);
+int fat16_write_file(uint16_t first_cluster, uint32_t current_size, uint32_t position,
+                      const void *buf, uint32_t len,
+                      uint16_t *out_first_cluster, uint32_t *out_new_size);
+void fat16_truncate(uint16_t first_cluster, uint32_t dir_lba, uint16_t dir_offset,
+                    uint16_t *out_first_cluster);
+void fat16_update_entry_size(uint32_t dir_lba, uint16_t dir_offset, uint16_t first_cluster,
+                             uint32_t size);
+int fat16_create_file(const char *path, uint32_t *out_dir_lba, uint16_t *out_dir_offset);
+int fat16_mkdir(const char *path);
+int fat16_delete_entry(const char *path);
+int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size,
+               uint32_t *out_dir_lba, uint16_t *out_dir_offset);
 #include "../errno.h"
 
 #define FAT_ATTR_DIRECTORY 0x10
@@ -1229,12 +1248,22 @@ static int fatfs_create(struct vnode *dir, const char *name, uint64_t *out_inode
     uint8_t fat_name[11];
     to_fat_name(name, fat_name);
 
+    struct fat16_dirent existing;
+    int in_root = (dir->inode_id == FATFS_ROOT_INODE);
+    int already = in_root ? find_in_root(v, fat_name, &existing, NULL, NULL)
+                          : find_in_directory_cluster(v, d->first_cluster, fat_name,
+                                                      &existing, NULL, NULL);
+    if (already) { return -EEXIST; }
+
     uint32_t lba;
     uint16_t off;
-    int rc = create_entry_in_directory(v, d->first_cluster,
-                                       dir->inode_id == FATFS_ROOT_INODE,
+    // create_entry_in_directory reports success as 1, not 0 -- it is
+    // boolean-with-negative-errno, the same convention find_in_root
+    // uses. Translate here rather than leaking it to the VFS, whose
+    // ops are all 0-on-success.
+    int rc = create_entry_in_directory(v, d->first_cluster, in_root,
                                        fat_name, 0, 0, 0, &lba, &off);
-    if (rc != 0) { return rc; }
+    if (rc <= 0) { return rc == 0 ? -ENOSPC : rc; }
     *out_inode_id = inode_id_of(lba, off);
     return 0;
 }
@@ -1245,6 +1274,13 @@ static int fatfs_mkdir_op(struct vnode *dir, const char *name) {
 
     uint8_t fat_name[11];
     to_fat_name(name, fat_name);
+
+    struct fat16_dirent existing;
+    int in_root = (dir->inode_id == FATFS_ROOT_INODE);
+    int already = in_root ? find_in_root(v, fat_name, &existing, NULL, NULL)
+                          : find_in_directory_cluster(v, d->first_cluster, fat_name,
+                                                      &existing, NULL, NULL);
+    if (already) { return -EEXIST; }
 
     uint16_t cluster = fat16_alloc_cluster(v);
     if (!cluster) { return -ENOSPC; }
@@ -1261,11 +1297,14 @@ static int fatfs_mkdir_op(struct vnode *dir, const char *name) {
 
     uint32_t lba;
     uint16_t off;
-    int rc = create_entry_in_directory(v, d->first_cluster,
-                                       dir->inode_id == FATFS_ROOT_INODE,
+    // Same boolean-success convention as fatfs_create above.
+    int rc = create_entry_in_directory(v, d->first_cluster, in_root,
                                        fat_name, FAT_ATTR_DIRECTORY, cluster, 0, &lba, &off);
-    if (rc != 0) { fat16_free_chain(v, cluster); }
-    return rc;
+    if (rc <= 0) {
+        fat16_free_chain(v, cluster);
+        return rc == 0 ? -ENOSPC : rc;
+    }
+    return 0;
 }
 
 static int fatfs_unlink_op(struct vnode *dir, const char *name) {

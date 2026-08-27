@@ -4,7 +4,7 @@
 #include "mm/heap.h"
 #include "tss.h"
 #include "serial.h"
-#include "fs/fatfs.h"
+#include "fs/vfs.h"
 #include "elf.h"
 #include "cpu.h"
 
@@ -115,6 +115,7 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     t->waiting_for_pid = 0;
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         t->files[i].in_use = 0;
+        t->files[i].vn = 0;
     }
     cpu_default_fpu_state(t->fpu_state);
     t->next = 0;
@@ -217,21 +218,24 @@ void schedule(void) {
 // any partial address space it built -- the caller's own state (if
 // any) is untouched.
 static int build_user_address_space(const char *path, uint64_t *out_pml4_phys, uint64_t *out_entry) {
-    uint16_t cluster;
-    uint32_t size;
-    if (!fat16_find(path, &cluster, &size, NULL, NULL)) {
+    int err = 0;
+    struct vnode *vn = vfs_resolve(path, &err);
+    if (!vn) {
         serial_write_string("[process] FAILED: file not found: ");
         serial_write_string(path);
         serial_write_string("\n");
         return 0;
     }
+    uint32_t size = vn->size;
 
     uint8_t *image = (uint8_t *)kmalloc(size);
     if (!image) {
         serial_write_string("[process] FAILED: kmalloc failed for ELF image\n");
+        vnode_put(vn);
         return 0;
     }
-    fat16_read_file(cluster, size, image);
+    vn->mount->ops->read(vn, 0, image, size);
+    vnode_put(vn);
 
     uint64_t pml4_phys = paging_alloc_pml4();
     uint64_t *pml4 = (uint64_t *)phys_to_virt(pml4_phys);
@@ -302,6 +306,7 @@ struct task *spawn(const char *path) {
     t->waiting_for_pid = 0;
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         t->files[i].in_use = 0;
+        t->files[i].vn = 0;
     }
     cpu_default_fpu_state(t->fpu_state);
     t->next = 0;
@@ -477,6 +482,12 @@ struct task *fork_task(struct syscall_frame *frame) {
     child->waiting_for_pid = 0;
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         child->files[i] = parent->files[i]; // copied by value -- see docs/stdlib.md
+        // The copy duplicates the vnode POINTER, so the child owes the
+        // cache its own reference; without this the first close on
+        // either side would free a vnode the other still holds.
+        if (child->files[i].in_use && child->files[i].vn) {
+            child->files[i].vn->refcount++;
+        }
     }
     for (int i = 0; i < FPU_STATE_SIZE; i++) {
         child->fpu_state[i] = parent->fpu_state[i];
@@ -507,6 +518,19 @@ void task_exit(int code) {
     // longer matters to the task being switched to, which restores its
     // own saved IF (see schedule_restore_if).
     __asm__ volatile ("cli");
+
+    // Release this task's file descriptors. task_exit() has never
+    // closed them -- an invisible leak until now, because nothing
+    // tracked file state beyond the task. With refcounted vnodes it
+    // would pin them permanently and make umount report -EBUSY
+    // forever, so the VFS forces this gap closed.
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (current->files[i].in_use && current->files[i].vn) {
+            vnode_put(current->files[i].vn);
+            current->files[i].vn = 0;
+            current->files[i].in_use = 0;
+        }
+    }
 
     if (current->pml4_phys) {
         // Leave the dying address space BEFORE freeing it. A freed frame
