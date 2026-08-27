@@ -94,6 +94,7 @@ void kmain(void *multiboot_info) {
     spawn("/BIN/LOOPER.ELF");
     spawn("/BIN/LOOPER.ELF");
     spawn("/BIN/YIELDER.ELF");
+    spawn("/BIN/VFSTEST.ELF");
 
     serial_write_string("NeoOS: interrupts enabled, starting scheduler\n");
     __asm__ volatile ("sti");
