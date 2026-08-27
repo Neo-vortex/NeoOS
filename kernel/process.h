@@ -66,6 +66,11 @@ struct task *current_task(void);
 #define USER_STACK_TOP 0x0000700000000000ULL
 
 struct task *spawn(const char *path);
+
+// Duplicates the calling task, sharing its user frames copy-on-write.
+// Returns the new child task, or 0 on failure (parent unaffected).
+struct task *fork_task(struct syscall_frame *frame);
+
 void task_exit(int code);
 int64_t wait_for_pid(int pid);
 

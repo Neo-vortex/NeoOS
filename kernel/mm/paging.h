@@ -10,6 +10,11 @@
 #define PAGE_USER        (1ULL << 2)
 #define PAGE_NO_EXECUTE  (1ULL << 63)
 
+// The physical-frame address field of a page-table entry: bits 12-51.
+// Masking with this (rather than ~0xFFF) also strips the reserved
+// high bits and PAGE_NO_EXECUTE, leaving just the frame address.
+#define PAGE_ADDR_MASK   0x000FFFFFFFFFF000ULL
+
 // Converts a physical address to its always-valid virtual alias in the
 // direct physmap (see paging_init). Valid for any address within the
 // first 4GiB (the physmap's coverage -- see Global Constraints).

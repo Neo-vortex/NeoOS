@@ -3,7 +3,6 @@
 #include "serial.h"
 
 #define PAGE_HUGE (1ULL << 7) // 2MiB page at the PD level
-#define PAGE_ADDR_MASK 0x000FFFFFFFFFF000ULL
 
 #define PHYSMAP_SIZE_BYTES (4ULL * 1024 * 1024 * 1024) // first 4GiB: all supported RAM plus the sub-4GiB MMIO hole (LAPIC/IOAPIC)
 #define PHYSMAP_PML4_INDEX 256

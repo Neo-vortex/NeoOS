@@ -35,6 +35,13 @@ alongside the library code that exposes it.
 - `int wait(int pid)` — blocks until the process with the given PID
   exits, reaps it, and returns its exit code. NeoOS-specific: takes
   one specific PID, not "any child".
+- `int fork(void)` — duplicates the calling process. Returns `0` in
+  the child, the child's PID in the parent, or `-1` on failure (parent
+  unaffected). Each side's open file descriptors are independent
+  copies after this call -- reads/writes/`lseek`s on inherited fds no
+  longer share a position between parent and child (unlike POSIX,
+  which shares one underlying open-file description).
+  NeoOS-specific simplification.
 - `int mkdir(const char *path)` — creates a new, empty directory.
   Returns 0, or a negative `<errno.h>` code on failure.
 - `int unlink(const char *path)` — deletes the file at `path`. Returns

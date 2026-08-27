@@ -49,6 +49,14 @@ int spawn(const char *path);
 // returns its exit code.
 int wait(int pid);
 
+// Duplicates the calling process. Returns 0 in the child, the
+// child's PID in the parent, or -1 on failure (parent unaffected).
+// Each side's open file descriptors are independent copies after
+// this call -- reads/writes/lseeks on inherited fds no longer share
+// a position between parent and child (unlike POSIX, which shares one
+// underlying open-file description). NeoOS-specific simplification.
+int fork(void);
+
 // Creates a new, empty directory at `path`. Returns 0, or a negative
 // errno.h code on failure.
 int mkdir(const char *path);

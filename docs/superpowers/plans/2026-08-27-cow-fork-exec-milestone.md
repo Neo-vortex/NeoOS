@@ -666,7 +666,7 @@ git commit -m "Add copy-on-write page-fault handler (dormant until fork() exists
 - Produces: `struct task *fork_task(struct syscall_frame *frame)` (`process.c`); `SYS_FORK` syscall number 12; `int fork(void)` (stdlib).
 - Consumes: `pmm_frame_share`/`pmm_frame_refcount` (Task 1), `struct syscall_frame` (Task 2), `paging_handle_cow_fault` (Task 4, exercised for the first time here).
 
-- [ ] **Step 1: Write `kernel/fork_trampoline.asm`**
+- [x] **Step 1: Write `kernel/fork_trampoline.asm`**
 
 ```nasm
 ; kernel/fork_trampoline.asm — bootstraps a fork()'d child's very
@@ -710,7 +710,7 @@ fork_trampoline:
     iretq
 ```
 
-- [ ] **Step 2: Add `SYS_FORK`, `struct syscall_frame` field access, and `fork_task` in `kernel/process.c`**
+- [x] **Step 2: Add `SYS_FORK`, `struct syscall_frame` field access, and `fork_task` in `kernel/process.c`**
 
 Add near the top of `kernel/process.c`, alongside the other `extern` declarations:
 
@@ -866,7 +866,7 @@ static int fork_duplicate_user_pages(uint64_t *parent_pml4, uint64_t *child_pml4
 
 `PAGE_ADDR_MASK` is currently private to `paging.c` -- add it to `kernel/mm/paging.h` (move the `#define PAGE_ADDR_MASK 0x000FFFFFFFFFF000ULL` from `paging.c` into `paging.h`, alongside the other `PAGE_*` defines; remove the now-duplicate definition from `paging.c`).
 
-- [ ] **Step 3: Add `SYS_FORK` to the dispatch table in `kernel/syscall.c`**
+- [x] **Step 3: Add `SYS_FORK` to the dispatch table in `kernel/syscall.c`**
 
 ```c
 #define SYS_LSEEK  11
@@ -882,7 +882,7 @@ Add a new case in `syscall_dispatch`'s `switch`:
         }
 ```
 
-- [ ] **Step 4: Add the stdlib wrapper**
+- [x] **Step 4: Add the stdlib wrapper**
 
 In `lib/syscall.c`:
 
@@ -909,7 +909,7 @@ In `lib/include/unistd.h`, add after `int wait(int pid);`:
 int fork(void);
 ```
 
-- [ ] **Step 5: Add the stdlib doc entry**
+- [x] **Step 5: Add the stdlib doc entry**
 
 In `docs/stdlib.md`, add to the `<unistd.h>` section (after the existing `wait` entry):
 
@@ -923,7 +923,7 @@ In `docs/stdlib.md`, add to the `<unistd.h>` section (after the existing `wait` 
   NeoOS-specific simplification.
 ```
 
-- [ ] **Step 6: Write `userland/fork_test.c`**
+- [x] **Step 6: Write `userland/fork_test.c`**
 
 ```c
 #include <unistd.h>
@@ -964,7 +964,7 @@ int main(int argc, char **argv) {
 }
 ```
 
-- [ ] **Step 7: Add `fork_test.c`'s Makefile build rule and disk-image entry**
+- [x] **Step 7: Add `fork_test.c`'s Makefile build rule and disk-image entry**
 
 In the `Makefile`, mirroring `SSE_TEST.ELF`'s rule:
 
@@ -982,7 +982,7 @@ Add `$(USERLAND_BUILD)/FORK_TEST.ELF` to the `$(DISK_IMG)` target's prerequisite
 
 Also add `kernel/fork_trampoline.asm` to the kernel's object build. Find the existing NASM build rule pattern for `.asm` files in the `Makefile` (the same pattern that already builds `context_switch.o`/`syscall_entry.o`) and confirm `fork_trampoline.o` is picked up automatically (it should be, if the kernel's object list is generated via a wildcard over `kernel/*.asm`; if the `Makefile` instead lists kernel asm objects explicitly, add `fork_trampoline.o` to that list next to `context_switch.o`).
 
-- [ ] **Step 8: Temporarily spawn `FORK_TEST.ELF` to verify**
+- [x] **Step 8: Temporarily spawn `FORK_TEST.ELF` to verify**
 
 In `kernel/kernel.c`, replace the four `spawn(...)` calls with:
 
@@ -990,20 +990,39 @@ In `kernel/kernel.c`, replace the four `spawn(...)` calls with:
     spawn("/BIN/FORK_TEST.ELF");
 ```
 
-- [ ] **Step 9: Build and verify**
+- [x] **Step 9: Build and verify**
 
 Run: `make clean && make disk-image && make iso`, boot with `-cpu Nehalem` as in Task 1.
 Expected serial output, in order: the child's `wrote 200, read back 200` and `passed` lines, then (after the child exits and the parent's `wait` returns) the parent's `wrote 300, read back 300` and `child exited code=0, passed` lines. Both sides must show their own distinct value (200 vs. 300) with no corruption -- this is the proof the COW fault handler (Task 4) actually copies on write rather than sharing or corrupting. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 10: Revert the temporary spawn change and verify no regression**
+- [x] **Step 10: Revert the temporary spawn change and verify no regression**
 
 Restore `kernel/kernel.c`'s original four-process boot. Confirm `git diff --stat kernel/kernel.c` prints nothing. Rebuild and boot again with `-cpu Nehalem`. Expected: milestone 5-8's exact full lifecycle reproduces, zero `FAILED`, zero exceptions.
 
-- [ ] **Step 11: Verify the fork-failure path (task-slot exhaustion)**
+- [x] **Step 11: Verify the fork-failure path (task-slot exhaustion)**
 
 Temporarily change `userland/fork_test.c`'s `main` to call `fork()` in a loop up to `MAX_TASKS` times without ever calling `wait()`, printing each return value, to confirm that once the task table fills up, `fork()` returns `-1` cleanly (not a crash) and the calling process keeps running normally afterward (e.g. prints one more line after the failed call). Spawn `FORK_TEST.ELF` alone in `kernel/kernel.c` as in Step 8, build, boot, and confirm: some number of successful forks (each printing a PID `>0`), then `-1` once the table is full, then the process's own trailing print still executes. Revert `fork_test.c` back to the Step 6 version afterward (`git diff --stat userland/fork_test.c` prints nothing) and revert `kernel/kernel.c` again (Step 10).
 
-- [ ] **Step 12: Commit**
+**Correction, found while executing:** the plan named the test binary
+`FORK_TEST.ELF`, which is 9 characters. `mcopy` mangles that to the 8.3
+short name `FORK_T~1.ELF` plus a VFAT long-name entry this FAT16 driver
+doesn't read, so `spawn("/BIN/FORK_TEST.ELF")` fails with "file not
+found". Every other userland binary here is <=8 characters. Renamed to
+`FORKTEST.ELF` throughout.
+
+**Second correction, a pre-existing scheduler bug this task exposed:**
+Step 11's task-table-exhaustion test double-faulted. Root cause was not
+in fork() at all -- `schedule()` ran with interrupts enabled while in an
+inconsistent state (`current` already updated to the incoming task,
+execution still on the outgoing task's stack), so a timer interrupt
+re-entering it made `context_switch` write the wrong task's RSP into
+`saved_rsp`. Fixed in its own commit ("Make schedule() non-reentrant
+..."); see that message for the full trace. Nothing before fork()
+reached the window, because it takes several tasks doing nothing but
+`yield()` to keep `schedule()` executing that large a fraction of the
+time.
+
+- [x] **Step 12: Commit**
 
 ```bash
 git add kernel/fork_trampoline.asm kernel/process.c kernel/process.h kernel/mm/paging.h kernel/mm/paging.c \

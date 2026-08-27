@@ -14,6 +14,7 @@
 #define SYS_MKDIR  9
 #define SYS_UNLINK 10
 #define SYS_LSEEK  11
+#define SYS_FORK   12
 
 static inline int64_t syscall0(int64_t num) {
     int64_t ret;
@@ -76,6 +77,10 @@ void yield(void) {
 int spawn(const char *path) {
     uint64_t len = strlen(path);
     return (int)syscall2(SYS_SPAWN, (int64_t)(uint64_t)path, (int64_t)len);
+}
+
+int fork(void) {
+    return (int)syscall0(SYS_FORK);
 }
 
 int wait(int pid) {

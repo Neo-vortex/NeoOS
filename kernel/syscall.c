@@ -25,6 +25,7 @@
 #define SYS_MKDIR  9
 #define SYS_UNLINK 10
 #define SYS_LSEEK  11
+#define SYS_FORK   12
 
 // Mirrors lib/include/fcntl.h's O_* values exactly -- the two trees
 // don't share headers, so these must be kept in sync by hand.
@@ -275,6 +276,10 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             }
             f->position = (uint32_t)new_position;
             return new_position;
+        }
+        case SYS_FORK: {
+            struct task *child = fork_task(frame);
+            return child ? child->pid : -1;
         }
         default:
             serial_write_string("[syscall] unknown syscall number\n");
