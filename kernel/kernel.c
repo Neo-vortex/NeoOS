@@ -20,6 +20,7 @@
 #include "syscall.h"
 #include "cpu.h"
 #include "lock.h"
+#include "waitq.h"
 #include "cpu_local.h"
 
 void kmain(void *multiboot_info) {
@@ -104,6 +105,10 @@ void kmain(void *multiboot_info) {
     spawn("/BIN/LOOPER.ELF");
     spawn("/BIN/YIELDER.ELF");
     spawn("/BIN/VFSTEST.ELF");
+
+    // After the spawns so the selftest's own kernel threads draw ids
+    // above the real processes', keeping pids stable across boots.
+    waitq_selftest_start();
 
     serial_write_string("NeoOS: interrupts enabled, starting scheduler\n");
     __asm__ volatile ("sti");

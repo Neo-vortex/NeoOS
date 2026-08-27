@@ -1,0 +1,37 @@
+#ifndef NEOOS_WAITQ_H
+#define NEOOS_WAITQ_H
+
+#include <stdint.h>
+
+// Deliberately does NOT include lock.h: lock.h includes THIS header
+// (struct mutex embeds a struct waitq by value), so including it back
+// would be circular. A forward declaration is all that's needed.
+struct spinlock;
+struct thread;
+
+struct waitq {
+    struct thread *head, *tail;
+};
+
+void waitq_init(struct waitq *q);
+
+// Blocks the calling thread on `q`. If `release` is non-null it is
+// unlocked before blocking and re-locked before returning. Returns 0
+// on a normal wake, or -EINTR if the thread was killed while blocked.
+//
+// The classic lost-wakeup window between releasing `release` and
+// switching away is closed by running with interrupts off, which is
+// genuinely sufficient on one CPU: no waker can run. The SMP milestone
+// replaces these internals with a lock handoff WITHOUT changing this
+// signature, so no caller has to change.
+int  waitq_sleep(struct waitq *q, struct spinlock *release);
+void waitq_wake_one(struct waitq *q);
+void waitq_wake_all(struct waitq *q);
+
+// Removes `t` from whatever queue it is blocked on, leaving it
+// dequeued but NOT ready. Used by thread_kill.
+void waitq_remove(struct thread *t);
+
+void waitq_selftest_start(void);
+
+#endif

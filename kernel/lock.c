@@ -2,7 +2,7 @@
 #include "cpu_local.h"
 #include "serial.h"
 
-static void lock_panic(const char *msg, const char *a, const char *b) {
+void lock_panic(const char *msg, const char *a, const char *b) {
     __asm__ volatile ("cli");
     serial_write_string("[lock] PANIC: ");
     serial_write_string(msg);
@@ -109,4 +109,33 @@ void lock_selftest(void) {
         return;
     }
     serial_write_string("[lock] selftest passed\n");
+}
+
+void mutex_init(struct mutex *m, uint8_t rank, const char *name) {
+    m->locked = 0;
+    m->rank   = rank;
+    m->name   = name;
+    waitq_init(&m->waiters);
+    spin_init(&m->guard, rank, name);
+}
+
+void mutex_lock(struct mutex *m) {
+    // Sleeping with a spinlock held would deadlock every other CPU once
+    // SMP lands, and hides an ordering bug even on one CPU.
+    if (lock_held_depth() != 0) {
+        lock_panic("mutex taken while holding a spinlock", m->name, 0);
+    }
+    uint64_t f = spin_lock_irqsave(&m->guard);
+    while (m->locked) {
+        waitq_sleep(&m->waiters, &m->guard);
+    }
+    m->locked = 1;
+    spin_unlock_irqrestore(&m->guard, f);
+}
+
+void mutex_unlock(struct mutex *m) {
+    uint64_t f = spin_lock_irqsave(&m->guard);
+    m->locked = 0;
+    waitq_wake_one(&m->waiters);
+    spin_unlock_irqrestore(&m->guard, f);
 }

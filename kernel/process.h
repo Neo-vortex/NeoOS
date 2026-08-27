@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "cpu.h"
 #include "lock.h"
+#include "waitq.h"
 #include "fs/vfs.h"
 
 // 16 entries indexed DIRECTLY by fd. /dev/CONSOLE is a real vnode
@@ -36,8 +37,6 @@ struct file_descriptor {
     int writable;
 };
 
-struct waitq; // waitq.h
-
 struct thread;
 
 struct process {
@@ -55,6 +54,7 @@ struct process {
     int exiting;
     int exit_code;
     enum { PROC_ALIVE, PROC_ZOMBIE } state;
+    struct waitq exit_waiters;      // threads blocked in wait_for_pid
     struct process *next;           // global process list
 };
 
@@ -68,8 +68,6 @@ struct thread {
     int stack_slot;                 // -1 for kernel-only threads
     int kill_pending;
     int exit_code;
-    // Interim wait bookkeeping, replaced by a waitq in the next task.
-    int waiting_for_pid;
     struct waitq *blocked_on;
     uint8_t fpu_state[FPU_STATE_SIZE] __attribute__((aligned(16)));
     struct thread *proc_next;       // sibling / zombie list link

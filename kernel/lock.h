@@ -2,6 +2,7 @@
 #define NEOOS_LOCK_H
 
 #include <stdint.h>
+#include "waitq.h"
 
 // Lock ranks from docs/superpowers/specs/2026-08-27-roadmap-architecture-design.md.
 // Acquisition must be strictly ascending: a lock may only be taken
@@ -41,6 +42,23 @@ int lock_rank_ok(uint8_t rank);
 // Number of spinlocks currently held by this CPU. Used by the mutex
 // code to refuse to sleep with a spinlock held.
 int lock_held_depth(void);
+
+// Sleeping lock: may block, therefore may NEVER be taken in interrupt
+// context or while holding a spinlock. Use for anything that performs
+// I/O -- the filesystem lock is the motivating case.
+struct mutex {
+    int             locked;
+    struct waitq    waiters;
+    struct spinlock guard;
+    uint8_t         rank;
+    const char     *name;
+};
+
+void mutex_init(struct mutex *m, uint8_t rank, const char *name);
+void mutex_lock(struct mutex *m);
+void mutex_unlock(struct mutex *m);
+
+void lock_panic(const char *msg, const char *a, const char *b);
 
 void lock_selftest(void);
 

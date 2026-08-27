@@ -8,6 +8,8 @@
 #include "elf.h"
 #include "cpu.h"
 #include "cpu_local.h"
+#include "errno.h"
+#include "waitq.h"
 
 extern void context_switch(uint64_t *old_rsp, uint64_t *new_rsp);
 extern void kernel_thread_entry_trampoline(void);
@@ -130,6 +132,7 @@ static struct process *proc_alloc(void) {
     for (unsigned i = 0; i < sizeof(struct process); i++) { ((uint8_t *)p)[i] = 0; }
     p->pid   = alloc_id();
     p->state = PROC_ALIVE;
+    waitq_init(&p->exit_waiters);
 
     uint64_t f = spin_lock_irqsave(&proc_lock);
     p->next   = proc_list;
@@ -148,8 +151,26 @@ static struct process *proc_find(int pid) {
 // Runs whenever no other thread is ready. Having a real idle thread
 // removes schedule()'s old "nothing ready, keep running whatever's
 // current" special case for the blocked/dead-current cases.
+// Kernel threads (proc == 0) have no parent to reap them and cannot
+// free the stack they are running on, so they park here and the idle
+// thread reclaims them. Without this every selftest thread would leak
+// its 16KiB kernel stack for the life of the boot.
+static struct thread *kzombies;
+
 static void idle_entry(void) {
-    for (;;) { __asm__ volatile ("sti; hlt"); }
+    for (;;) {
+        uint64_t f = spin_lock_irqsave(&proc_lock);
+        struct thread *z = kzombies;
+        kzombies = 0;
+        spin_unlock_irqrestore(&proc_lock, f);
+        while (z) {
+            struct thread *next = z->proc_next;
+            pmm_free(z->kernel_stack_phys, KERNEL_STACK_ORDER);
+            kfree(z);
+            z = next;
+        }
+        __asm__ volatile ("sti; hlt");
+    }
 }
 
 static void idle_init(void) {
@@ -591,20 +612,6 @@ struct thread *fork_task(struct syscall_frame *frame) {
     return child;
 }
 
-// Interim: wakes every thread blocked in wait_for_pid on `pid`. The
-// next task replaces this scan with a per-process wait queue.
-static void wake_pid_waiters(int pid) {
-    for (struct process *q = proc_list; q; q = q->next) {
-        for (struct thread *t = q->threads; t; t = t->proc_next) {
-            if (t->state == THREAD_BLOCKED && t->waiting_for_pid == pid) {
-                t->state = THREAD_READY;
-                t->waiting_for_pid = 0;
-                enqueue_ready(t);
-            }
-        }
-    }
-}
-
 void proc_get(struct process *p) { p->refcount++; }
 
 // Drops one live-thread reference. On the last one, frees the address
@@ -646,7 +653,7 @@ void proc_put(struct process *p) {
     }
 
     p->state = PROC_ZOMBIE;
-    wake_pid_waiters(p->pid);
+    waitq_wake_all(&p->exit_waiters);
 }
 
 void thread_exit_self(int code) {
@@ -669,6 +676,9 @@ void thread_exit_self(int code) {
         p->zombies   = t;
 
         proc_put(p);
+    } else {
+        t->proc_next = kzombies;
+        kzombies     = t;
     }
 
     __asm__ volatile ("sti");
@@ -697,9 +707,7 @@ int64_t wait_for_pid(int pid) {
     if (!p) { return -1; }
 
     while (p->state != PROC_ZOMBIE) {
-        current_thread()->state = THREAD_BLOCKED;
-        current_thread()->waiting_for_pid = pid;
-        schedule();
+        if (waitq_sleep(&p->exit_waiters, 0) == -EINTR) { return -EINTR; }
     }
 
     int code = p->exit_code;

@@ -4,6 +4,7 @@
 #include "process.h"
 #include "fs/vfs.h"
 #include "errno.h"
+#include "lock.h"
 
 #define MSR_EFER   0xC0000080
 #define MSR_STAR   0xC0000081
@@ -59,28 +60,12 @@ static inline void wrmsr(uint32_t msr, uint64_t value) {
     __asm__ volatile ("wrmsr" :: "c"(msr), "a"(lo), "d"(hi));
 }
 
-static volatile int fs_lock = 0;
-
-// Uniprocessor spinlock: cli/sti around the test-and-set is enough
-// since interrupts are the only source of preemption here. A task
-// that loses the race yields and retries rather than busy-spinning
-// with interrupts disabled the whole time.
-static void fs_lock_acquire(void) {
-    for (;;) {
-        __asm__ volatile ("cli");
-        if (!fs_lock) {
-            fs_lock = 1;
-            __asm__ volatile ("sti");
-            return;
-        }
-        __asm__ volatile ("sti");
-        schedule();
-    }
-}
-
-static void fs_lock_release(void) {
-    fs_lock = 0;
-}
+// A sleeping mutex, not a spinlock: every critical section it guards
+// performs disk I/O, and spinning through that would burn the whole
+// time slice. Rank MOUNTTABLE per the roadmap's lock hierarchy.
+static struct mutex fs_lock;
+#define fs_lock_acquire() mutex_lock(&fs_lock)
+#define fs_lock_release() mutex_unlock(&fs_lock)
 
 // Copies up to out_size-1 bytes from a user-supplied (pointer, len)
 // pair into a NUL-terminated kernel buffer. Shared by every syscall
@@ -340,6 +325,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
 }
 
 void syscall_init(void) {
+    mutex_init(&fs_lock, LOCK_RANK_MOUNTTABLE, "fs");
     uint64_t efer = rdmsr(MSR_EFER);
     // EFER_NXE: elf_load (Task 5) is the first code in NeoOS to
     // actually set PAGE_NO_EXECUTE (bit 63) on a real PTE -- without
