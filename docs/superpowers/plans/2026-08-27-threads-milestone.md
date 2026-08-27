@@ -24,26 +24,41 @@
 
 ### The "boot log UNCHANGED" check
 
-Tasks 2, 3, 4 and 5 are refactors that must not change observable
-behavior. Each is gated on the boot log being identical to the
-previous task's. Timer ticks vary run to run and are filtered out.
+Tasks 2, 3 and 5 are refactors that must not change observable
+behavior. Each is gated on the boot log's **deterministic subset**
+being unchanged.
+
+**Corrected during execution of Task 2.** A byte-identical comparison
+does not work: two runs of the *identical* binary differ by ~57 lines,
+because looper/yielder preemption interleaves differently every run,
+and even `task exited` lines reorder relative to `vfstest` output. The
+gate therefore (a) filters out timing-dependent lines and (b) compares
+the **sorted multiset**, so line ordering may vary but the set of
+lines may not. Verified: with this filter, two runs of one binary
+differ by 0 lines.
 
 ```bash
-# capture a baseline BEFORE starting such a task
+filter() {
+  grep -vE '^\[timer\] tick=|calibrated lapic|kmain address=|^\[(looper|yielder) pid=[0-9]+\] tick$' "$1"
+}
+
+# BEFORE starting such a task, capture a baseline:
 rm -f build/disk.img build/disk2.img
 make clean && make iso disk-image
 timeout 60 qemu-system-x86_64 -cpu Nehalem -boot order=d \
   -cdrom build/neoos.iso -drive file=build/disk.img,format=raw \
   -drive file=build/disk2.img,format=raw -display none -no-reboot \
   -serial file:/tmp/baseline.log
-grep -v '^\[timer\] tick=' /tmp/baseline.log > /tmp/baseline.txt
+filter /tmp/baseline.log | sort > /tmp/baseline.txt
 
 # after the task, same run into /tmp/after.log, then:
-grep -v '^\[timer\] tick=' /tmp/after.log > /tmp/after.txt
+filter /tmp/after.log | sort > /tmp/after.txt
 diff /tmp/baseline.txt /tmp/after.txt && echo "IDENTICAL"
 ```
 
-**Any diff is a bug in the task, not an acceptable change.**
+`kmain address=` is filtered because adding code moves it; that is not
+a behavior change. **Any other diff is a bug in the task, not an
+acceptable change.**
 
 ### Note on sequencing
 
@@ -565,6 +580,40 @@ call `cpu_local_init()` before `lock_selftest()`. Move the
 `lock_selftest();` call from Task 1 to sit immediately after
 `cpu_local_init();`.
 
+- [ ] **Step 8b: Give GS to userland in the ring-3 trampolines**
+
+**Added during execution — the plan originally missed this, and the
+task cannot boot without it.** Loading a GS *selector* (`mov gs, ax`)
+zeroes `IA32_GS_BASE` as a side effect. Two consequences:
+
+1. `kernel_thread_trampoline` (`context_switch.asm`) and
+   `fork_trampoline` (`fork_trampoline.asm`) `iretq` into ring 3 with
+   no `swapgs`, so `GS_BASE` would still name the per-CPU block while
+   userland runs; the first interrupt from ring 3 then swaps it
+   *away*, leaving `GS_BASE = 0`. Observed: `#GP` in `schedule()` with
+   `rax=0xf000ff53f000ff53` — the BIOS data area at physical 0.
+2. `gdt_flush.asm` also does `mov gs, ax`, so `cpu_local_init()` must
+   run **after** `gdt_init()`, not before. Installing the base earlier
+   has it wiped a few instructions later.
+
+In both trampolines, insert `cli` before the segment loads, drop
+`mov gs, <sel>` from the group, then after the remaining loads:
+
+```nasm
+    swapgs              ; GS_BASE <- userland's 0, KERNEL_GS_BASE <- per-CPU
+    mov gs, ax          ; selector only; base is already 0
+```
+
+`mov gs` must come *after* `swapgs`, or the per-CPU pointer is
+destroyed before it reaches `IA32_KERNEL_GS_BASE`. Interrupts must be
+off across the `swapgs`..`iretq` window: GS already holds userland's
+value there while the CPU is still at CPL0, so `isr_common_stub`'s
+conditional `swapgs` would correctly decline to swap it back. `iretq`
+restores `IF` from the pushed RFLAGS.
+
+In `kmain`, order is `tss_init(); gdt_init(); cpu_local_init();
+lock_selftest();`.
+
 - [ ] **Step 9: Build and verify the log is unchanged**
 
 ```bash
@@ -594,7 +643,8 @@ offset is wrong; if it faults on the first syscall, check that
 ```bash
 git add kernel/cpu_local.h kernel/cpu_local.c kernel/syscall_entry.asm \
         kernel/isr.asm kernel/tss.h kernel/tss.c kernel/gdt.c \
-        kernel/process.c kernel/kernel.c kernel/lock.c
+        kernel/process.c kernel/kernel.c kernel/lock.c \
+        kernel/context_switch.asm kernel/fork_trampoline.asm
 git commit -m "Add per-CPU data reached through GS and remove two SMP-fatal globals"
 ```
 

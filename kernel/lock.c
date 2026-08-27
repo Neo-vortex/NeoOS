@@ -1,10 +1,6 @@
 #include "lock.h"
+#include "cpu_local.h"
 #include "serial.h"
-
-// Held-rank stack for this CPU. Moves into struct cpu in the per-CPU
-// task; a single global is correct while exactly one CPU exists.
-static uint8_t held_ranks[LOCK_MAX_HELD];
-static int     held_depth;
 
 static void lock_panic(const char *msg, const char *a, const char *b) {
     __asm__ volatile ("cli");
@@ -24,11 +20,12 @@ void spin_init(struct spinlock *l, uint8_t rank, const char *name) {
     l->name   = name;
 }
 
-int lock_held_depth(void) { return held_depth; }
+int lock_held_depth(void) { return this_cpu()->held_depth; }
 
 int lock_rank_ok(uint8_t rank) {
-    if (held_depth == 0) { return 1; }
-    return rank > held_ranks[held_depth - 1];
+    struct cpu *c = this_cpu();
+    if (c->held_depth == 0) { return 1; }
+    return rank > c->held_ranks[c->held_depth - 1];
 }
 
 uint64_t spin_lock_irqsave(struct spinlock *l) {
@@ -38,7 +35,8 @@ uint64_t spin_lock_irqsave(struct spinlock *l) {
     if (!lock_rank_ok(l->rank)) {
         lock_panic("rank inversion", l->name, "see previous acquire");
     }
-    if (held_depth >= LOCK_MAX_HELD) {
+    struct cpu *c = this_cpu();
+    if (c->held_depth >= LOCK_MAX_HELD) {
         lock_panic("held-lock stack overflow", l->name, 0);
     }
 
@@ -48,15 +46,16 @@ uint64_t spin_lock_irqsave(struct spinlock *l) {
         __asm__ volatile ("pause");
     }
 
-    held_ranks[held_depth++] = l->rank;
+    c->held_ranks[c->held_depth++] = l->rank;
     return flags;
 }
 
 void spin_unlock_irqrestore(struct spinlock *l, uint64_t flags) {
-    if (held_depth <= 0) {
+    struct cpu *c = this_cpu();
+    if (c->held_depth <= 0) {
         lock_panic("unlock with nothing held", l->name, 0);
     }
-    held_depth--;
+    c->held_depth--;
     __atomic_store_n(&l->locked, 0u, __ATOMIC_RELEASE);
     if (flags & (1ULL << 9)) {
         __asm__ volatile ("sti");

@@ -6,26 +6,30 @@
 ; user stack) -- SYSCALL never switches stacks automatically.
 
 extern syscall_dispatch
-extern tss
 
-section .bss
-align 8
-user_rsp_scratch: resq 1
+; Per-CPU block offsets -- must match kernel/cpu_local.h's CPU_*
+; defines, which are _Static_assert'd against struct cpu's layout.
+; Nothing checks THESE against that header, so keep them in sync by eye.
+CPU_USER_RSP equ 32
+CPU_KSTACK   equ 40
 
 section .text
 [bits 64]
 global syscall_entry
 
 syscall_entry:
-    ; Swap onto the current task's kernel stack. tss.rsp0 is kept up
-    ; to date by the scheduler on every context switch (see
-    ; process.c's schedule()), so it always names the right stack
-    ; regardless of which task is running. tss_entry.rsp0 sits at
-    ; offset 4 (right after the packed struct's 4-byte reserved0).
-    mov [rel user_rsp_scratch], rsp
-    mov rsp, [rel tss + 4]
+    ; SYSCALL leaves RSP on the USER stack. swapgs brings this CPU's
+    ; per-CPU block into GS (userland's GS value goes to
+    ; IA32_KERNEL_GS_BASE), giving us a scratch slot and the kernel
+    ; stack pointer without clobbering any register the caller owns.
+    ; kernel_stack is kept up to date by the scheduler on every context
+    ; switch (see process.c's schedule()), so it always names the right
+    ; stack regardless of which task is running.
+    swapgs
+    mov [gs:CPU_USER_RSP], rsp
+    mov rsp, [gs:CPU_KSTACK]
 
-    push qword [rel user_rsp_scratch] ; user RSP
+    push qword [gs:CPU_USER_RSP] ; user RSP
     push rcx                           ; user RIP
     push r11                           ; user RFLAGS
     push rbx
@@ -88,7 +92,8 @@ syscall_entry:
     pop rbx
     pop r11
     pop rcx
-    pop qword [rel user_rsp_scratch]
-    mov rsp, [rel user_rsp_scratch]
+    pop qword [gs:CPU_USER_RSP]
+    mov rsp, [gs:CPU_USER_RSP]
+    swapgs
 
     o64 sysret

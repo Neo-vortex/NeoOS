@@ -7,6 +7,7 @@
 #include "fs/vfs.h"
 #include "elf.h"
 #include "cpu.h"
+#include "cpu_local.h"
 
 extern void context_switch(uint64_t *old_rsp, uint64_t *new_rsp);
 extern void kernel_thread_entry_trampoline(void);
@@ -178,7 +179,9 @@ void schedule(void) {
 
     next->state = TASK_RUNNING;
     current = next;
-    tss.rsp0 = next->kernel_stack_top;
+    struct cpu *c = this_cpu();
+    c->tss->rsp0    = next->kernel_stack_top;
+    c->kernel_stack = next->kernel_stack_top;
 
     // Always establish a definite CR3, even for a kernel-mode-only task
     // (pml4_phys == 0 -- falls back to the kernel's own never-freed

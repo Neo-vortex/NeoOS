@@ -29,7 +29,7 @@ void gdt_init(void) {
     gdt_entries[0] = 0;                                                           // null
     gdt_entries[1] = (1ULL << 43) | (1ULL << 44) | (1ULL << 47) | (1ULL << 53);    // kernel code (0x08)
     gdt_entries[2] = (1ULL << 41) | (1ULL << 44) | (1ULL << 47);                   // kernel data (0x10)
-    set_tss_descriptor((uint64_t)&tss, sizeof(struct tss_entry) - 1);              // TSS (0x18-0x27)
+    set_tss_descriptor((uint64_t)&tss[0], sizeof(struct tss_entry) - 1);              // TSS (0x18-0x27)
     gdt_entries[5] = (1ULL << 43) | (1ULL << 44) | (1ULL << 47) | (3ULL << 45);    // user code32 placeholder (0x28)
     gdt_entries[6] = (1ULL << 41) | (1ULL << 44) | (1ULL << 47) | (3ULL << 45);    // user data (0x30)
     gdt_entries[7] = (1ULL << 43) | (1ULL << 44) | (1ULL << 47) | (1ULL << 53) | (3ULL << 45); // user code64 (0x38)

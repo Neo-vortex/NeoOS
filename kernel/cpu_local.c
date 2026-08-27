@@ -1,0 +1,40 @@
+#include "cpu_local.h"
+#include "serial.h"
+
+#define MSR_GS_BASE        0xC0000101
+#define MSR_KERNEL_GS_BASE 0xC0000102
+
+struct cpu cpus[MAX_CPUS];
+
+static void wrmsr64(uint32_t msr, uint64_t value) {
+    uint32_t lo = (uint32_t)value;
+    uint32_t hi = (uint32_t)(value >> 32);
+    __asm__ volatile ("wrmsr" :: "c"(msr), "a"(lo), "d"(hi));
+}
+
+void cpu_local_init(void) {
+    struct cpu *c = &cpus[0];
+    c->self             = c;
+    c->current          = 0;
+    c->idle             = 0;
+    c->tss              = &tss[0];
+    c->user_rsp_scratch = 0;
+    c->kernel_stack     = 0;
+    c->lapic_id         = 0;
+    c->held_depth       = 0;
+
+    // Must run AFTER gdt_flush: loading a GS SELECTOR (`mov gs, ax`)
+    // zeroes IA32_GS_BASE as a side effect, so any base installed
+    // before the GDT reload is silently destroyed. The same hazard is
+    // why the ring-3 trampolines swapgs only after their segment
+    // loads.
+    //
+    // While executing in the kernel, GS_BASE names this block and
+    // KERNEL_GS_BASE holds userland's GS value (0 -- NeoOS gives
+    // userland no GS base). Every kernel entry swapgs's them into that
+    // arrangement and every exit swaps them back.
+    wrmsr64(MSR_GS_BASE, (uint64_t)(uintptr_t)c);
+    wrmsr64(MSR_KERNEL_GS_BASE, 0);
+
+    serial_write_string("[cpu] per-CPU block installed\n");
+}

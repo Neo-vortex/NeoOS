@@ -5,9 +5,10 @@
 ; every other vector (including all IRQs, which never have one) gets
 ; a fake zero pushed so every vector produces the same stack layout.
 ;
-; Because every interrupt in this kernel is taken while already at
-; CPL0 (no ring 3 exists yet), the CPU does NOT push SS/RSP on entry
-; — only RIP, CS, RFLAGS (and the error code, where applicable).
+; In long mode the CPU always pushes SS and RSP, at every privilege
+; level, so the frame layout is uniform. Entries from ring 3 need
+; swapgs; entries from ring 0 must NOT have it, or GS would end up
+; holding userland's value inside the kernel -- see isr_common_stub.
 
 extern isr_handler
 
@@ -67,6 +68,14 @@ ISR_NOERR i
 %endrep
 
 isr_common_stub:
+    ; [rsp]=vector [rsp+8]=error_code [rsp+16]=RIP [rsp+24]=CS.
+    ; CPL is CS[1:0]; 3 means the interrupt came from user mode and GS
+    ; must be swapped. Swapping unconditionally would point GS at
+    ; userland's value for interrupts taken in the kernel.
+    test byte [rsp+24], 3
+    jz .no_swapgs_in
+    swapgs
+.no_swapgs_in:
     push rax
     push rbx
     push rcx
@@ -104,6 +113,11 @@ isr_common_stub:
     pop rax
 
     add rsp, 16     ; drop vector_number + error_code
+    ; [rsp]=RIP [rsp+8]=CS now that the vector/error pair is gone.
+    test byte [rsp+8], 3
+    jz .no_swapgs_out
+    swapgs
+.no_swapgs_out:
     iretq
 
 section .rodata

@@ -20,6 +20,7 @@
 #include "syscall.h"
 #include "cpu.h"
 #include "lock.h"
+#include "cpu_local.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -39,6 +40,13 @@ void kmain(void *multiboot_info) {
 
     tss_init();
     gdt_init();
+    // AFTER gdt_init: gdt_flush reloads the segment registers, and
+    // `mov gs, ax` ZEROES IA32_GS_BASE as a side effect. Installing the
+    // per-CPU pointer any earlier would have it wiped a few
+    // instructions later, and every this_cpu() would then dereference
+    // physical address 0.
+    cpu_local_init();
+    lock_selftest();
     serial_write_string("[gdt] loaded, tss_selector=0x18\n");
 
     idt_init();
@@ -68,8 +76,6 @@ void kmain(void *multiboot_info) {
 
     heap_init();
     heap_selftest();
-
-    lock_selftest();
 
     struct ata_identify_info ata_info;
     ata_identify(0, &ata_info);

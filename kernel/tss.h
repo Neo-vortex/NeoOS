@@ -13,7 +13,11 @@ struct tss_entry {
     uint16_t iomap_base;
 } __attribute__((packed));
 
-extern struct tss_entry tss;
+#define MAX_TSS 1   // one per CPU; raised by the SMP milestone
+
+// Do NOT include cpu_local.h here: cpu_local.h includes this header,
+// and the reverse include would be circular.
+extern struct tss_entry tss[MAX_TSS];
 
 void tss_init(void);
 

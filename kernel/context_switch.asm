@@ -68,10 +68,21 @@ kernel_thread_trampoline:
     pop rdi   ; entry_rip, planted by spawn()
     pop rsi   ; user_rsp, planted by spawn()
 
+    cli
     mov ax, 0x33        ; user data selector (RPL3)
     mov ds, ax
     mov es, ax
     mov fs, ax
+    ; Hand GS over to userland. Ordering is load-bearing twice over:
+    ;   - `mov gs, ax` ZEROES GS_BASE as a side effect, so it must come
+    ;     AFTER the swapgs, or the per-CPU block pointer is destroyed
+    ;     before it can be parked in IA32_KERNEL_GS_BASE.
+    ;   - interrupts must be off across the swapgs..iretq window: GS
+    ;     already holds userland's value there, but the CPU is still at
+    ;     CPL0, so isr_common_stub's conditional swapgs would (rightly)
+    ;     decline to swap it back. iretq restores IF from the pushed
+    ;     RFLAGS below.
+    swapgs              ; GS_BASE <- userland's 0, KERNEL_GS_BASE <- per-CPU
     mov gs, ax
 
     push 0x33           ; SS
