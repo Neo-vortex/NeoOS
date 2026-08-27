@@ -15,6 +15,7 @@
 #define SYS_UNLINK 10
 #define SYS_LSEEK  11
 #define SYS_FORK   12
+#define SYS_EXEC   13
 
 static inline int64_t syscall0(int64_t num) {
     int64_t ret;
@@ -81,6 +82,11 @@ int spawn(const char *path) {
 
 int fork(void) {
     return (int)syscall0(SYS_FORK);
+}
+
+int exec(const char *path) {
+    uint64_t len = strlen(path);
+    return (int)syscall2(SYS_EXEC, (int64_t)(uint64_t)path, (int64_t)len);
 }
 
 int wait(int pid) {

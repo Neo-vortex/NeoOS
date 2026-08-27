@@ -26,6 +26,7 @@
 #define SYS_UNLINK 10
 #define SYS_LSEEK  11
 #define SYS_FORK   12
+#define SYS_EXEC   13
 
 // Mirrors lib/include/fcntl.h's O_* values exactly -- the two trees
 // don't share headers, so these must be kept in sync by hand.
@@ -280,6 +281,11 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
         case SYS_FORK: {
             struct task *child = fork_task(frame);
             return child ? child->pid : -1;
+        }
+        case SYS_EXEC: {
+            char path_buf[64];
+            copy_user_path(a1, a2, path_buf, sizeof(path_buf));
+            return exec_task(path_buf, frame) ? 0 : -1;
         }
         default:
             serial_write_string("[syscall] unknown syscall number\n");

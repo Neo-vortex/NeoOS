@@ -1042,7 +1042,7 @@ git commit -m "Add fork() via copy-on-write address-space duplication"
 - Produces: `int exec_task(const char *path, struct syscall_frame *frame)` (`process.c`); `SYS_EXEC` syscall number 13; `int exec(const char *path)` (stdlib).
 - Consumes: `struct syscall_frame` (Task 2), `free_address_space` (Task 3), a `build_user_address_space` helper factored out of `spawn()` in this task.
 
-- [ ] **Step 1: Factor `build_user_address_space` out of `spawn()` in `kernel/process.c`**
+- [x] **Step 1: Factor `build_user_address_space` out of `spawn()` in `kernel/process.c`**
 
 `spawn()` currently does, inline:
 
@@ -1178,7 +1178,7 @@ struct task *spawn(const char *path) {
 }
 ```
 
-- [ ] **Step 2: Write `exec_task` in `kernel/process.c`**
+- [x] **Step 2: Write `exec_task` in `kernel/process.c`**
 
 Add after `spawn`:
 
@@ -1212,7 +1212,7 @@ int exec_task(const char *path, struct syscall_frame *frame) {
 }
 ```
 
-- [ ] **Step 3: Add `SYS_EXEC` to the dispatch table in `kernel/syscall.c`**
+- [x] **Step 3: Add `SYS_EXEC` to the dispatch table in `kernel/syscall.c`**
 
 ```c
 #define SYS_FORK   12
@@ -1227,7 +1227,7 @@ int exec_task(const char *path, struct syscall_frame *frame) {
         }
 ```
 
-- [ ] **Step 4: Add the stdlib wrapper**
+- [x] **Step 4: Add the stdlib wrapper**
 
 In `lib/syscall.c`:
 
@@ -1255,7 +1255,7 @@ In `lib/include/unistd.h`, add after `int fork(void);`:
 int exec(const char *path);
 ```
 
-- [ ] **Step 5: Add the stdlib doc entry**
+- [x] **Step 5: Add the stdlib doc entry**
 
 In `docs/stdlib.md`, add to the `<unistd.h>` section (after the new `fork` entry):
 
@@ -1268,7 +1268,7 @@ In `docs/stdlib.md`, add to the `<unistd.h>` section (after the new `fork` entry
   original code.
 ```
 
-- [ ] **Step 6: Write `userland/exec_target.c`**
+- [x] **Step 6: Write `userland/exec_target.c`**
 
 ```c
 #include <unistd.h>
@@ -1282,7 +1282,7 @@ int main(int argc, char **argv) {
 }
 ```
 
-- [ ] **Step 7: Wire `fork_test.c`'s child to `exec()` into it**
+- [x] **Step 7: Wire `fork_test.c`'s child to `exec()` into it**
 
 In `userland/fork_test.c`, change the child branch (after the existing `printf("[fork_test child pid=%d] passed\n", getpid());` line) to:
 
@@ -1294,7 +1294,7 @@ In `userland/fork_test.c`, change the child branch (after the existing `printf("
         return 1; // only reached if exec() failed
 ```
 
-- [ ] **Step 8: Add `exec_target.c`'s Makefile build rule and disk-image entry**
+- [x] **Step 8: Add `exec_target.c`'s Makefile build rule and disk-image entry**
 
 ```makefile
 $(USERLAND_BUILD)/EXEC_TARGET.ELF: $(USERLAND_DIR)/exec_target.c $(USERLAND_DIR)/user.ld $(LIB_BUILD)/crt0.o $(LIB_BUILD)/libneoos.a
@@ -1308,20 +1308,20 @@ Add `$(USERLAND_BUILD)/EXEC_TARGET.ELF` to the `$(DISK_IMG)` target's prerequisi
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/EXEC_TARGET.ELF ::BIN/EXEC_TARGET.ELF
 ```
 
-- [ ] **Step 9: Temporarily spawn `FORK_TEST.ELF` to verify**
+- [x] **Step 9: Temporarily spawn `FORK_TEST.ELF` to verify**
 
 In `kernel/kernel.c`, replace the four `spawn(...)` calls with `spawn("/BIN/FORK_TEST.ELF");` (same as Task 5 Step 8).
 
-- [ ] **Step 10: Build and verify**
+- [x] **Step 10: Build and verify**
 
 Run: `make clean && make disk-image && make iso`, boot with `-cpu Nehalem` as in Task 1.
 Expected serial output: the child's `wrote 200, read back 200` and `passed` lines, immediately followed by `[exec_target pid=N] running, exec succeeded` (same pid as the forked child, since `exec()` preserves it) -- the forked child's own identity (and the code that would have printed an "exec FAILED" line) is fully replaced, never resumes. Then, after the exec'd process exits, the parent's `wrote 300, read back 300` and `child exited code=0, passed` lines (the exit code comes from `exec_target.c`'s `return 0`). Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 11: Revert the temporary spawn change and verify no regression**
+- [x] **Step 11: Revert the temporary spawn change and verify no regression**
 
 Restore `kernel/kernel.c`'s original four-process boot. Confirm `git diff --stat kernel/kernel.c` prints nothing. Rebuild and boot again. Expected: milestone 5-8's exact full lifecycle reproduces, zero `FAILED`, zero exceptions.
 
-- [ ] **Step 12: Verify the exec-failure path**
+- [x] **Step 12: Verify the exec-failure path**
 
 Temporarily change `userland/fork_test.c`'s child branch to call `exec("/BIN/NOPE.ELF")` (a nonexistent path) instead of `/BIN/EXEC_TARGET.ELF`, and print an extra confirmation line after the failed call to prove the process is still alive and running its original code:
 
@@ -1332,7 +1332,17 @@ Temporarily change `userland/fork_test.c`'s child branch to call `exec("/BIN/NOP
 
 Spawn `FORK_TEST.ELF` alone (Step 9), build, boot. Expected: `exec correctly failed, result=-1, still alive` prints, proving a failed `exec()` leaves the process running rather than crashing or corrupting it. Revert `fork_test.c` back to the Step 7 version (`git diff --stat userland/fork_test.c` prints nothing) and revert `kernel/kernel.c` again (Step 11).
 
-- [ ] **Step 13: Commit**
+**Corrections, found while executing:**
+1. `EXEC_TARGET.ELF` is 11 characters -- same 8.3 short-name mangling
+   that hit `FORK_TEST.ELF` in Task 5. Renamed to `EXECTARG.ELF`.
+2. The `exec_task` snippet above called `free_address_space(t->pml4_phys)`
+   *before* loading the new CR3, which is the same fatal ordering bug
+   Task 3 fixed in `task_exit()`: freeing the live PML4 lets pmm write
+   free-list links over `pml4[0]`. Corrected to switch CR3 first, then
+   free the old space (reachable afterward via the physmap, which the
+   new address space shares).
+
+- [x] **Step 13: Commit**
 
 ```bash
 git add kernel/process.c kernel/process.h kernel/syscall.c lib/syscall.c lib/include/unistd.h \

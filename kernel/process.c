@@ -208,11 +208,19 @@ void schedule(void) {
     schedule_restore_if(flags);
 }
 
-struct task *spawn(const char *path) {
+// Builds a complete, freshly-loaded user address space from the ELF
+// image at `path`: a new PML4 with the shared kernel entries, the
+// loaded ELF segments, and a fresh user stack. On success, returns 1
+// with *out_pml4_phys/*out_entry set; the caller (spawn() for a new
+// task, exec_task() for an existing one) is responsible for wiring
+// the result into a struct task. On failure, returns 0 having freed
+// any partial address space it built -- the caller's own state (if
+// any) is untouched.
+static int build_user_address_space(const char *path, uint64_t *out_pml4_phys, uint64_t *out_entry) {
     uint16_t cluster;
     uint32_t size;
     if (!fat16_find(path, &cluster, &size, NULL, NULL)) {
-        serial_write_string("[process] spawn FAILED: file not found: ");
+        serial_write_string("[process] FAILED: file not found: ");
         serial_write_string(path);
         serial_write_string("\n");
         return 0;
@@ -220,7 +228,7 @@ struct task *spawn(const char *path) {
 
     uint8_t *image = (uint8_t *)kmalloc(size);
     if (!image) {
-        serial_write_string("[process] spawn FAILED: kmalloc failed for ELF image\n");
+        serial_write_string("[process] FAILED: kmalloc failed for ELF image\n");
         return 0;
     }
     fat16_read_file(cluster, size, image);
@@ -234,20 +242,37 @@ struct task *spawn(const char *path) {
     uint64_t entry;
     if (!elf_load(image, size, pml4, &entry)) {
         kfree(image);
+        free_address_space(pml4_phys);
         return 0;
     }
     kfree(image);
 
     for (int i = 0; i < USER_STACK_PAGES; i++) {
         uint64_t frame = pmm_alloc(0);
+        if (!frame) {
+            free_address_space(pml4_phys);
+            return 0;
+        }
         zero_frames(frame, 0);
         uint64_t vaddr = USER_STACK_TOP - (uint64_t)(USER_STACK_PAGES - i) * PMM_FRAME_SIZE;
         paging_map_into(pml4, vaddr, frame, PAGE_WRITABLE | PAGE_NO_EXECUTE | PAGE_USER);
     }
 
+    *out_pml4_phys = pml4_phys;
+    *out_entry = entry;
+    return 1;
+}
+
+struct task *spawn(const char *path) {
+    uint64_t pml4_phys, entry;
+    if (!build_user_address_space(path, &pml4_phys, &entry)) {
+        return 0;
+    }
+
     struct task *t = alloc_task_slot();
     if (!t) {
         serial_write_string("[process] spawn FAILED: no free task slot\n");
+        free_address_space(pml4_phys);
         return 0;
     }
 
@@ -283,6 +308,43 @@ struct task *spawn(const char *path) {
 
     enqueue_ready(t);
     return t;
+}
+
+// Replaces the calling task's address space in place with the ELF
+// image at `path`. Open files, pid, and parent_pid are preserved
+// (POSIX default: exec() does not close file descriptors). Returns 1
+// on success (the syscall path never actually returns to the old
+// program -- frame's saved RIP/RSP are overwritten so the ordinary
+// sysret lands in the new one instead), or 0 on failure, leaving the
+// calling task completely unchanged and still runnable -- the new
+// address space is built and validated to completion before the old
+// one is freed, so a bad path or OOM never destroys the caller.
+int exec_task(const char *path, struct syscall_frame *frame) {
+    uint64_t new_pml4_phys, new_entry;
+    if (!build_user_address_space(path, &new_pml4_phys, &new_entry)) {
+        return 0;
+    }
+
+    struct task *t = current;
+
+    // Switch to the new address space BEFORE freeing the old one, for
+    // the same reason task_exit() does: pmm stores each free block's
+    // links inside the block itself, so freeing the old PML4 while it
+    // is still live in CR3 overwrites pml4[0] -- the identity map pmm
+    // dereferences those links through. free_address_space() walks via
+    // the physmap (PML4[256]), which the new address space shares, so
+    // the old space stays reachable after the switch.
+    uint64_t old_pml4_phys = t->pml4_phys;
+    t->pml4_phys = new_pml4_phys;
+    __asm__ volatile ("mov %0, %%cr3" :: "r"(new_pml4_phys) : "memory");
+    free_address_space(old_pml4_phys);
+
+    cpu_default_fpu_state(t->fpu_state);
+
+    frame->rcx = new_entry;       // user RIP the ordinary sysret epilogue will return to
+    frame->user_rsp = USER_STACK_TOP;
+
+    return 1;
 }
 
 // Walks every present user-mode page in `parent_pml4`, clears its

@@ -21,7 +21,10 @@ int main(int argc, char **argv) {
             return 1;
         }
         printf("[fork_test child pid=%d] passed\n", getpid());
-        return 0;
+
+        int exec_result = exec("/BIN/EXECTARG.ELF");
+        printf("[fork_test child pid=%d] exec FAILED, result=%d\n", getpid(), exec_result);
+        return 1; // only reached if exec() failed
     }
 
     shared_until_written = 300;

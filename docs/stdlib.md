@@ -42,6 +42,12 @@ alongside the library code that exposes it.
   longer share a position between parent and child (unlike POSIX,
   which shares one underlying open-file description).
   NeoOS-specific simplification.
+- `int exec(const char *path)` — replaces the calling process's
+  address space with the ELF executable at `path`. Open file
+  descriptors, PID, and parent are preserved. On success, never
+  returns. Returns `-1` on failure (bad path, out of memory), leaving
+  the calling process completely unchanged and still running its
+  original code.
 - `int mkdir(const char *path)` — creates a new, empty directory.
   Returns 0, or a negative `<errno.h>` code on failure.
 - `int unlink(const char *path)` — deletes the file at `path`. Returns

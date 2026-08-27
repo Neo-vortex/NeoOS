@@ -71,6 +71,12 @@ struct task *spawn(const char *path);
 // Returns the new child task, or 0 on failure (parent unaffected).
 struct task *fork_task(struct syscall_frame *frame);
 
+// Replaces the calling task's address space with the ELF at `path`,
+// preserving its pid, parent, and open files. Returns 1 on success
+// (the syscall's sysret lands in the new program), or 0 on failure
+// with the caller left completely unchanged.
+int exec_task(const char *path, struct syscall_frame *frame);
+
 void task_exit(int code);
 int64_t wait_for_pid(int pid);
 

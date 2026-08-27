@@ -57,6 +57,14 @@ int wait(int pid);
 // underlying open-file description). NeoOS-specific simplification.
 int fork(void);
 
+// Replaces the calling process's address space with the ELF
+// executable at `path` (NUL-terminated). Open file descriptors, pid,
+// and parent are preserved. On success, never returns -- execution
+// continues at the new program's entry point. Returns -1 on failure
+// (bad path, out of memory), leaving the calling process completely
+// unchanged and still running its original code.
+int exec(const char *path);
+
 // Creates a new, empty directory at `path`. Returns 0, or a negative
 // errno.h code on failure.
 int mkdir(const char *path);
