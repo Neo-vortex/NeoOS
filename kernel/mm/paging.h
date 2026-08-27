@@ -54,4 +54,8 @@ int paging_map_into(uint64_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags
 // links over pml4[0] (see the note in paging.c).
 void free_address_space(uint64_t pml4_phys);
 
+// Handles a write fault on a copy-on-write page (see fork()).
+// Returns 1 if handled, 0 if this wasn't a recognized COW fault.
+int paging_handle_cow_fault(uint64_t pml4_phys, uint64_t fault_addr);
+
 #endif

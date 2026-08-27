@@ -174,6 +174,55 @@ void free_address_space(uint64_t pml4_phys) {
     pmm_free(pml4_phys, 0);
 }
 
+// Called from isr.c on a #PF with error_code bits present=1, write=1,
+// user=1. Since fork() is the only thing in this kernel that ever marks
+// a user PTE read-only, any such fault is assumed to be copy-on-write,
+// never a genuine permission violation -- there is no separate "real
+// read-only segment" concept yet (elf_load() always maps
+// PAGE_WRITABLE). Returns 1 if handled (safe to return to the faulting
+// instruction, which will now succeed), 0 if this wasn't actually a
+// recognized COW fault (caller should fall through to the existing
+// fatal exception path -- covers genuine bugs, wild pointers, and
+// non-present accesses unchanged).
+int paging_handle_cow_fault(uint64_t pml4_phys, uint64_t fault_addr) {
+    uint64_t *pml4 = (uint64_t *)phys_to_virt(pml4_phys);
+    uint64_t *pdpt = table_entry(pml4, PML4_INDEX(fault_addr), 0, 0);
+    uint64_t *pd   = pdpt ? table_entry(pdpt, PDPT_INDEX(fault_addr), 0, 0) : 0;
+    uint64_t *pt   = pd ? table_entry(pd, PD_INDEX(fault_addr), 0, 0) : 0;
+    if (!pt) {
+        return 0;
+    }
+
+    unsigned pt_index = PT_INDEX(fault_addr);
+    uint64_t entry = pt[pt_index];
+    if (!(entry & PAGE_PRESENT) || (entry & PAGE_WRITABLE)) {
+        return 0; // not present, or already writable -- not a COW fault
+    }
+
+    uint64_t old_phys = entry & PAGE_ADDR_MASK;
+    uint64_t flags_no_addr = entry & ~PAGE_ADDR_MASK & ~PAGE_PRESENT;
+
+    if (pmm_frame_refcount(old_phys) == 1) {
+        // Sole remaining owner -- no copy needed, just re-enable write.
+        pt[pt_index] = entry | PAGE_WRITABLE;
+    } else {
+        uint64_t new_phys = pmm_alloc(0);
+        if (!new_phys) {
+            return 0; // out of memory -- caller's fatal path will report this fault
+        }
+        uint8_t *src = (uint8_t *)phys_to_virt(old_phys);
+        uint8_t *dst = (uint8_t *)phys_to_virt(new_phys);
+        for (int i = 0; i < 4096; i++) {
+            dst[i] = src[i];
+        }
+        pt[pt_index] = (new_phys & PAGE_ADDR_MASK) | flags_no_addr | PAGE_PRESENT | PAGE_WRITABLE;
+        pmm_free(old_phys, 0); // drops this task's share
+    }
+
+    __asm__ volatile ("invlpg (%0)" :: "r"(fault_addr) : "memory");
+    return 1;
+}
+
 #define PAGING_SELFTEST_VA 0xFFFF900000000000ULL
 
 void paging_selftest(void) {

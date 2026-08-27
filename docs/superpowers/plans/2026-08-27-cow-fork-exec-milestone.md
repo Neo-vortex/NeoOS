@@ -542,7 +542,7 @@ git commit -m "Free a process's address space on exit; defer kernel-stack free t
 
 This task adds a dormant code path: nothing before Task 5 ever marks a user PTE read-only, so this handler is never actually triggered yet. Verification is a full-regression no-op check, same reasoning as Task 2.
 
-- [ ] **Step 1: Write `paging_handle_cow_fault` in `kernel/mm/paging.c`**
+- [x] **Step 1: Write `paging_handle_cow_fault` in `kernel/mm/paging.c`**
 
 Add near the end of the file, after `free_address_space`:
 
@@ -597,7 +597,7 @@ int paging_handle_cow_fault(uint64_t pml4_phys, uint64_t fault_addr) {
 }
 ```
 
-- [ ] **Step 2: Declare it in `kernel/mm/paging.h`**
+- [x] **Step 2: Declare it in `kernel/mm/paging.h`**
 
 Add after `void free_address_space(uint64_t pml4_phys);`:
 
@@ -607,7 +607,7 @@ Add after `void free_address_space(uint64_t pml4_phys);`:
 int paging_handle_cow_fault(uint64_t pml4_phys, uint64_t fault_addr);
 ```
 
-- [ ] **Step 3: Hook it into `kernel/isr.c`'s exception path**
+- [x] **Step 3: Hook it into `kernel/isr.c`'s exception path**
 
 `isr_handler` currently does, unconditionally for any vector < 32:
 
@@ -642,12 +642,12 @@ void isr_handler(struct registers *regs) {
 
 Add `#include "mm/paging.h"` and `#include "process.h"` to `kernel/isr.c`.
 
-- [ ] **Step 4: Build and verify full regression**
+- [x] **Step 4: Build and verify full regression**
 
 Run: `make clean && make disk-image && make iso`, boot with `-cpu Nehalem` as in Task 1.
 Expected: milestone 5-8's exact full lifecycle reproduces unchanged -- no existing code path ever produces a present+read-only user PTE, so `paging_handle_cow_fault` is never actually invoked yet; this is a pure dormant-code-path addition. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kernel/mm/paging.c kernel/mm/paging.h kernel/isr.c

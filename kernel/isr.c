@@ -4,6 +4,8 @@
 #include "timer.h"
 #include "lapic.h"
 #include "keyboard.h"
+#include "mm/paging.h"
+#include "process.h"
 
 static const char *exception_names[32] = {
     "Divide Error", "Debug", "NMI", "Breakpoint", "Overflow",
@@ -64,6 +66,25 @@ static void unhandled_interrupt(uint64_t vector) {
 }
 
 void isr_handler(struct registers *regs) {
+    if (regs->vector_number == 14) {
+        // A #PF that was present + write + user can only be a write to a
+        // read-only user page, and fork() is the only thing that ever
+        // creates one. The current_task()/pml4_phys guard is belt-and-
+        // braces: user=1 means the fault came from user mode, which
+        // implies a running task with its own address space -- but a
+        // null deref here would surface as an unrelated double fault
+        // and bury whatever the real bug was.
+        uint64_t present_write_user = 0x7; // P=1, W=1, U=1
+        struct task *t = current_task();
+        if ((regs->error_code & present_write_user) == present_write_user && t && t->pml4_phys) {
+            uint64_t cr2;
+            __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+            if (paging_handle_cow_fault(t->pml4_phys, cr2)) {
+                return;
+            }
+        }
+    }
+
     if (regs->vector_number < 32) {
         exception_dump_and_halt(regs);
         return;
