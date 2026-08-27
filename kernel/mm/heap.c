@@ -11,12 +11,21 @@ struct heap_free_slot {
     struct heap_free_slot *next;
 };
 
+// 64-byte aligned so that sizeof() -- and therefore the offset of the
+// first slot in every page -- is a multiple of 64. Slots are carved at
+// multiples of their size class starting from that offset, so this is
+// what makes every kmalloc() pointer suitably aligned for the SSE and
+// FPU state buffers stored in them: fxsave/fxrstor #GP on an address
+// that is not 16-byte aligned, and XSAVE will want 64. Without the
+// attribute the header is 24 bytes and every slot lands on an 8-mod-16
+// address (observed: #GP in schedule()'s fxrstor of a heap-allocated
+// struct thread).
 struct heap_page {
     struct heap_page *next;
     struct heap_free_slot *free_list;
     uint32_t size_class; // bytes per slot, or HEAP_LARGE_MARKER for a large (multi-page) allocation
     uint32_t meta;        // size-class pages: free slot count. Large allocations: the pmm buddy order.
-};
+} __attribute__((aligned(64)));
 
 static struct heap_page *class_pages[HEAP_NUM_CLASSES];
 

@@ -56,8 +56,11 @@ filter /tmp/after.log | sort > /tmp/after.txt
 diff /tmp/baseline.txt /tmp/after.txt && echo "IDENTICAL"
 ```
 
-`kmain address=` is filtered because adding code moves it; that is not
-a behavior change. **Any other diff is a bug in the task, not an
+`kmain address=` is filtered because adding code moves it, and
+`free_frames=` because changing `.bss` moves it (Task 3 removes the
+static `struct task tasks[16]`, freeing exactly 16KB = 4 frames).
+Neither is a behavior change; check any `free_frames` delta is
+explainable rather than ignoring it. **Any other diff is a bug in the task, not an
 acceptable change.**
 
 ### Note on sequencing
@@ -1123,6 +1126,53 @@ int64_t wait_for_pid(int pid) {
 - `kernel/timer.c` and `kernel/isr.c`: any `struct task` reference
   becomes `struct thread`.
 
+- [ ] **Step 9b: Fix kmalloc's alignment before heap-allocating threads**
+
+**Added during execution — Task 3 cannot boot without it.** The plan
+originally asserted that "kmalloc slots are >= 16-byte aligned". That
+is **false**: `heap.c` carves slots starting at
+`sizeof(struct heap_page)` = 24 bytes, so every `kmalloc` pointer is
+8 mod 16. `fxsave`/`fxrstor` `#GP` on a non-16-byte-aligned address,
+so the first `schedule()` faulted on `fxrstor (%rax)` with
+`rax=0xffff800000432868`.
+
+Fix it at the allocator, not in `thread_alloc`, and align to 64 rather
+than 16 so milestone 2's `XSAVE` needs no further change:
+
+```c
+struct heap_page {
+    struct heap_page *next;
+    struct heap_free_slot *free_list;
+    uint32_t size_class;
+    uint32_t meta;
+} __attribute__((aligned(64)));
+```
+
+Every size class is a power of two >= 16, so a 64-byte first-slot
+offset makes every slot at least 16-byte aligned, and classes >= 64
+fully 64-byte aligned. Large allocations get a 64-byte header too.
+
+- [ ] **Step 9c: Keep pids stable — two ID-allocation rules**
+
+**Added during execution.** Two separate off-by-ones shift every pid
+and make the log gate useless:
+
+1. A process and its first thread both drawing from `next_id` makes
+   pids come out 2, 4, 6, ... Fix: **a process's first thread takes
+   the pid as its tid**, matching Linux (main thread `tid == pid`).
+   Later threads draw fresh ids, so a tid still never collides with a
+   pid.
+
+```c
+    t->tid = (p && !p->threads) ? p->pid : alloc_id();
+```
+
+2. The idle thread consuming an id before `PARENT` shifts pids by one.
+   Fix: **start `next_id` at 0**, so `idle_init()` -- the first
+   allocation of all -- naturally takes id 0, the value reserved for
+   idle threads. Do NOT allocate an id and then overwrite `tid` with
+   0; the counter has already advanced by then.
+
 - [ ] **Step 10: Build and verify the log is unchanged**
 
 ```bash
@@ -1147,7 +1197,7 @@ one means the idle thread consumed an id — check `idle_init` sets
 ```bash
 git add kernel/process.h kernel/process.c kernel/syscall.c \
         kernel/fs/vfs.h kernel/fs/vfs.c kernel/cpu_local.h \
-        kernel/timer.c kernel/isr.c
+        kernel/isr.c kernel/kernel.c kernel/mm/heap.c
 git commit -m "Split struct task into refcounted process and thread"
 ```
 

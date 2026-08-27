@@ -339,14 +339,14 @@ struct vnode *vfs_resolve_parent(const char *path, char *out_name, int *out_err)
     return resolve_walk(path, 1, out_name, out_err);
 }
 
-int vfs_open_into(const char *path, struct task *t, int fd, int writable) {
+int vfs_open_into(const char *path, struct process *p, int fd, int writable) {
     int err = 0;
     struct vnode *vn = vfs_resolve(path, &err);
     if (!vn) { return err; }
-    t->files[fd].in_use = 1;
-    t->files[fd].vn = vn;
-    t->files[fd].position = 0;
-    t->files[fd].writable = writable;
+    p->files[fd].in_use = 1;
+    p->files[fd].vn = vn;
+    p->files[fd].position = 0;
+    p->files[fd].writable = writable;
     return 0;
 }
 

@@ -20,10 +20,12 @@
 #define CPU_USER_RSP 32
 #define CPU_KSTACK   40
 
+struct thread;
+
 struct cpu {
     struct cpu       *self;             // gs:0 -- this block's own address
-    void             *current;          // retyped to struct thread * in the split task
-    void             *idle;             // retyped to struct thread * in the split task
+    struct thread    *current;
+    struct thread    *idle;
     struct tss_entry *tss;
     uint64_t          user_rsp_scratch; // was a global in syscall_entry.asm
     uint64_t          kernel_stack;     // mirrors tss->rsp0 for the syscall path

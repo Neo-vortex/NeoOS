@@ -69,17 +69,17 @@ void isr_handler(struct registers *regs) {
     if (regs->vector_number == 14) {
         // A #PF that was present + write + user can only be a write to a
         // read-only user page, and fork() is the only thing that ever
-        // creates one. The current_task()/pml4_phys guard is belt-and-
+        // creates one. The current_proc()/pml4_phys guard is belt-and-
         // braces: user=1 means the fault came from user mode, which
-        // implies a running task with its own address space -- but a
-        // null deref here would surface as an unrelated double fault
+        // implies a running thread with a process address space -- but
+        // a null deref here would surface as an unrelated double fault
         // and bury whatever the real bug was.
         uint64_t present_write_user = 0x7; // P=1, W=1, U=1
-        struct task *t = current_task();
-        if ((regs->error_code & present_write_user) == present_write_user && t && t->pml4_phys) {
+        struct process *p = current_proc();
+        if ((regs->error_code & present_write_user) == present_write_user && p && p->pml4_phys) {
             uint64_t cr2;
             __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
-            if (paging_handle_cow_fault(t->pml4_phys, cr2)) {
+            if (paging_handle_cow_fault(p->pml4_phys, cr2)) {
                 return;
             }
         }

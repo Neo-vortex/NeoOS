@@ -27,7 +27,7 @@ struct dirent {
 enum vnode_type { VNODE_FILE, VNODE_DIR, VNODE_DEVICE };
 
 struct vfs_mount;
-struct task; // opened into by vfs_open_into; process.h includes this header
+struct process; // opened into by vfs_open_into; process.h includes this header
 
 struct vnode {
     struct vfs_mount *mount;
@@ -96,6 +96,6 @@ struct vnode *vfs_resolve_parent(const char *path, char *out_name, int *out_err)
 // Opens `path` into task t's fd slot `fd`, taking the vnode reference
 // the slot will own. Used to give every new process its standard
 // streams; ordinary opens go through SYS_OPEN instead.
-int vfs_open_into(const char *path, struct task *t, int fd, int writable);
+int vfs_open_into(const char *path, struct process *p, int fd, int writable);
 
 #endif

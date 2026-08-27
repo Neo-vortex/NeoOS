@@ -15,11 +15,14 @@ extern void kernel_thread_trampoline(void);
 extern void fork_trampoline(void);
 extern uint64_t p4_table[512]; // boot.asm's live PML4
 
-static struct task tasks[MAX_TASKS];
-static struct task *ready_head;
-static struct task *ready_tail;
-static struct task *current;
-static int next_pid = 1;
+static struct process *proc_list;
+static struct spinlock proc_lock;
+static struct thread *ready_head;
+static struct thread *ready_tail;
+// Starts at 0 so the idle thread -- created first, by idle_init() --
+// naturally takes id 0, which is reserved for idle threads and is
+// never a valid pid. The first real process therefore gets pid 1.
+static int next_id = 0;
 
 // Wipes a freshly allocated physical block before it becomes a task's
 // stack. pmm_alloc() hands back whatever the previous owner left there,
@@ -44,7 +47,7 @@ static void zero_frames(uint64_t phys, unsigned order) {
     }
 }
 
-static void enqueue_ready(struct task *t) {
+static void enqueue_ready(struct thread *t) {
     t->next = 0;
     if (ready_tail) {
         ready_tail->next = t;
@@ -54,8 +57,8 @@ static void enqueue_ready(struct task *t) {
     ready_tail = t;
 }
 
-static struct task *dequeue_ready(void) {
-    struct task *t = ready_head;
+static struct thread *dequeue_ready(void) {
+    struct thread *t = ready_head;
     if (t) {
         ready_head = t->next;
         if (!ready_head) {
@@ -66,27 +69,111 @@ static struct task *dequeue_ready(void) {
     return t;
 }
 
-void process_init(void) {
-    for (int i = 0; i < MAX_TASKS; i++) {
-        tasks[i].state = TASK_UNUSED;
+void thread_enqueue_ready(struct thread *t) { enqueue_ready(t); }
+
+// Removes `t` from the ready queue wherever it sits. Only used by
+// idle_init, which has to un-enqueue the idle thread that
+// thread_alloc_kernel just queued.
+static void dequeue_specific(struct thread *t) {
+    struct thread **pp = &ready_head;
+    struct thread *prev = 0;
+    while (*pp && *pp != t) { prev = *pp; pp = &(*pp)->next; }
+    if (*pp) {
+        *pp = t->next;
+        if (ready_tail == t) { ready_tail = prev; }
     }
-    ready_head = 0;
-    ready_tail = 0;
-    current = 0;
-    serial_write_string("[process] initialized\n");
+    t->next = 0;
 }
 
-static struct task *alloc_task_slot(void) {
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (tasks[i].state == TASK_UNUSED) {
-            return &tasks[i];
-        }
+struct thread  *current_thread(void) { return this_cpu()->current; }
+struct process *current_proc(void) {
+    struct thread *t = current_thread();
+    return t ? t->proc : 0;
+}
+
+static int alloc_id(void) {
+    uint64_t f = spin_lock_irqsave(&proc_lock);
+    int id = next_id++;
+    spin_unlock_irqrestore(&proc_lock, f);
+    return id;
+}
+
+// thread->fpu_state is fxsave/fxrstor'd directly out of this
+// allocation, and those #GP on an address that is not 16-byte aligned.
+// heap.c's struct heap_page is 64-byte aligned specifically so every
+// kmalloc slot satisfies that; see the comment there.
+static struct thread *thread_alloc(struct process *p) {
+    struct thread *t = (struct thread *)kmalloc(sizeof(struct thread));
+    if (!t) { return 0; }
+    for (unsigned i = 0; i < sizeof(struct thread); i++) { ((uint8_t *)t)[i] = 0; }
+    // A process's FIRST thread takes the pid as its tid, matching
+    // Linux (main thread: tid == pid). Later threads draw fresh ids
+    // from the same counter, so a tid never collides with a pid, and a
+    // single-threaded process consumes exactly one id -- which is what
+    // keeps pids stable across this refactor.
+    t->tid        = (p && !p->threads) ? p->pid : alloc_id();
+    t->proc       = p;
+    t->state      = THREAD_READY;
+    t->stack_slot = -1;
+    cpu_default_fpu_state(t->fpu_state);
+    if (p) {
+        t->proc_next = p->threads;
+        p->threads   = t;
+        p->refcount++;
+    }
+    return t;
+}
+
+static struct process *proc_alloc(void) {
+    struct process *p = (struct process *)kmalloc(sizeof(struct process));
+    if (!p) { return 0; }
+    for (unsigned i = 0; i < sizeof(struct process); i++) { ((uint8_t *)p)[i] = 0; }
+    p->pid   = alloc_id();
+    p->state = PROC_ALIVE;
+
+    uint64_t f = spin_lock_irqsave(&proc_lock);
+    p->next   = proc_list;
+    proc_list = p;
+    spin_unlock_irqrestore(&proc_lock, f);
+    return p;
+}
+
+static struct process *proc_find(int pid) {
+    for (struct process *p = proc_list; p; p = p->next) {
+        if (p->pid == pid) { return p; }
     }
     return 0;
 }
 
-struct task *task_create_kernel_thread(void (*entry)(void)) {
-    struct task *t = alloc_task_slot();
+// Runs whenever no other thread is ready. Having a real idle thread
+// removes schedule()'s old "nothing ready, keep running whatever's
+// current" special case for the blocked/dead-current cases.
+static void idle_entry(void) {
+    for (;;) { __asm__ volatile ("sti; hlt"); }
+}
+
+static void idle_init(void) {
+    struct thread *t = thread_alloc_kernel(idle_entry);
+    // Reserved: idle threads are never a valid pid. thread_alloc()
+    // already handed out id 0 here, since idle_init() runs before any
+    // other allocation -- see next_id's initialiser.
+    t->tid = 0;
+    dequeue_specific(t);   // never on the ready queue; schedule() falls back to it
+    this_cpu()->idle = t;
+}
+
+void process_init(void) {
+    spin_init(&proc_lock, LOCK_RANK_PROCTABLE, "proc_list");
+    proc_list  = 0;
+    ready_head = 0;
+    ready_tail = 0;
+    this_cpu()->current = 0;
+    idle_init();
+    serial_write_string("[process] initialized\n");
+}
+
+struct thread *thread_alloc_kernel(void (*entry)(void)) {
+    struct thread *t = thread_alloc(0);
     if (!t) {
         return 0;
     }
@@ -105,28 +192,12 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     *(--sp) = 0; // r14
     *(--sp) = 0; // r15
 
-    t->pid = next_pid++;
-    t->state = TASK_READY;
     t->saved_rsp = (uint64_t)sp;
     t->kernel_stack_top = stack_top;
     t->kernel_stack_phys = stack_phys;
-    t->pml4_phys = 0;
-    t->parent_pid = 0;
-    t->exit_code = 0;
-    t->waiting_for_pid = 0;
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        t->files[i].in_use = 0;
-        t->files[i].vn = 0;
-    }
-    cpu_default_fpu_state(t->fpu_state);
-    t->next = 0;
 
     enqueue_ready(t);
     return t;
-}
-
-struct task *current_task(void) {
-    return current;
 }
 
 // Restores EFLAGS.IF to whatever it was on entry to schedule(). Split
@@ -165,21 +236,26 @@ void schedule(void) {
     uint64_t flags;
     __asm__ volatile ("pushfq; pop %0; cli" : "=r"(flags) :: "memory");
 
-    struct task *next = dequeue_ready();
+    struct cpu *c = this_cpu();
+
+    struct thread *next = dequeue_ready();
     if (!next) {
-        schedule_restore_if(flags);
-        return; // nothing else ready; keep running whatever's current
+        struct thread *cur = c->current;
+        if (cur && cur->state == THREAD_RUNNING) {
+            schedule_restore_if(flags);
+            return; // nothing else ready; keep running whatever's current
+        }
+        next = c->idle; // current is blocked or dead -- park on idle
     }
 
-    struct task *prev = current;
-    if (prev && prev->state == TASK_RUNNING) {
-        prev->state = TASK_READY;
+    struct thread *prev = c->current;
+    if (prev && prev->state == THREAD_RUNNING && prev != c->idle) {
+        prev->state = THREAD_READY;
         enqueue_ready(prev);
     }
 
-    next->state = TASK_RUNNING;
-    current = next;
-    struct cpu *c = this_cpu();
+    next->state = THREAD_RUNNING;
+    c->current = next;
     c->tss->rsp0    = next->kernel_stack_top;
     c->kernel_stack = next->kernel_stack_top;
 
@@ -192,7 +268,9 @@ void schedule(void) {
     // pointing at it could get silently reused and overwritten by the
     // very next pmm_alloc() -- corrupting the page table the CPU is
     // still actively translating through.
-    uint64_t next_cr3 = next->pml4_phys ? next->pml4_phys : (uint64_t)(uintptr_t)p4_table;
+    uint64_t next_cr3 = (next->proc && next->proc->pml4_phys)
+                      ? next->proc->pml4_phys
+                      : (uint64_t)(uintptr_t)p4_table;
     __asm__ volatile ("mov %0, %%cr3" :: "r"(next_cr3) : "memory");
 
     if (prev == next) {
@@ -217,7 +295,7 @@ void schedule(void) {
 // loaded ELF segments, and a fresh user stack. On success, returns 1
 // with *out_pml4_phys/*out_entry set; the caller (spawn() for a new
 // task, exec_task() for an existing one) is responsible for wiring
-// the result into a struct task. On failure, returns 0 having freed
+// the result into a process. On failure, returns 0 having freed
 // any partial address space it built -- the caller's own state (if
 // any) is untouched.
 static int build_user_address_space(const char *path, uint64_t *out_pml4_phys, uint64_t *out_entry) {
@@ -270,26 +348,37 @@ static int build_user_address_space(const char *path, uint64_t *out_pml4_phys, u
     return 1;
 }
 
-struct task *spawn(const char *path) {
+struct process *spawn(const char *path) {
     uint64_t pml4_phys, entry;
     if (!build_user_address_space(path, &pml4_phys, &entry)) {
         return 0;
     }
 
-    struct task *t = alloc_task_slot();
-    if (!t) {
-        serial_write_string("[process] spawn FAILED: no free task slot\n");
+    struct process *p = proc_alloc();
+    if (!p) {
+        serial_write_string("[process] spawn FAILED: out of memory for process\n");
         free_address_space(pml4_phys);
         return 0;
     }
+    p->pml4_phys   = pml4_phys;
+    p->parent_pid  = current_proc() ? current_proc()->pid : 0;
+    p->stack_slots = 1; // slot 0 is the main thread's stack
+
+    struct thread *t = thread_alloc(p);
+    if (!t) {
+        serial_write_string("[process] spawn FAILED: out of memory for thread\n");
+        free_address_space(pml4_phys);
+        return 0;
+    }
+    t->stack_slot = 0;
 
     uint64_t kstack_phys = pmm_alloc(KERNEL_STACK_ORDER);
     zero_frames(kstack_phys, KERNEL_STACK_ORDER);
     uint64_t kstack_top = (uint64_t)(uintptr_t)phys_to_virt(kstack_phys) + (PMM_FRAME_SIZE << KERNEL_STACK_ORDER);
 
     uint64_t *sp = (uint64_t *)kstack_top;
-    *(--sp) = USER_STACK_TOP;                    // user_rsp, popped by kernel_thread_trampoline
-    *(--sp) = entry;                             // entry_rip, popped by kernel_thread_trampoline
+    *(--sp) = USER_STACK_TOP;                     // user_rsp, popped by kernel_thread_trampoline
+    *(--sp) = entry;                              // entry_rip, popped by kernel_thread_trampoline
     *(--sp) = (uint64_t)kernel_thread_trampoline; // context_switch's `ret` lands here
     *(--sp) = 0; // rbp
     *(--sp) = 0; // rbx
@@ -298,31 +387,20 @@ struct task *spawn(const char *path) {
     *(--sp) = 0; // r14
     *(--sp) = 0; // r15
 
-    t->pid = next_pid++;
-    t->state = TASK_READY;
-    t->saved_rsp = (uint64_t)sp;
-    t->kernel_stack_top = kstack_top;
+    t->saved_rsp         = (uint64_t)sp;
+    t->kernel_stack_top  = kstack_top;
     t->kernel_stack_phys = kstack_phys;
-    t->pml4_phys = pml4_phys;
-    t->parent_pid = current ? current->pid : 0;
-    t->exit_code = 0;
-    t->waiting_for_pid = 0;
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        t->files[i].in_use = 0;
-        t->files[i].vn = 0;
-    }
+
     // Standard streams as real /dev/CONSOLE vnodes. stdin is opened
     // read-only and always returns EOF; stdout and stderr both write
-    // to the console. Before the VFS these were integers special-cased
-    // in syscall_dispatch and were never real descriptors at all.
-    vfs_open_into("/dev/CONSOLE", t, 0, 0);
-    vfs_open_into("/dev/CONSOLE", t, 1, 1);
-    vfs_open_into("/dev/CONSOLE", t, 2, 1);
-    cpu_default_fpu_state(t->fpu_state);
-    t->next = 0;
+    // to the console. The table belongs to the process, so every
+    // thread of it shares these.
+    vfs_open_into("/dev/CONSOLE", p, 0, 0);
+    vfs_open_into("/dev/CONSOLE", p, 1, 1);
+    vfs_open_into("/dev/CONSOLE", p, 2, 1);
 
     enqueue_ready(t);
-    return t;
+    return p;
 }
 
 // Replaces the calling task's address space in place with the ELF
@@ -340,7 +418,7 @@ int exec_task(const char *path, struct syscall_frame *frame) {
         return 0;
     }
 
-    struct task *t = current;
+    struct process *p = current_proc();
 
     // Switch to the new address space BEFORE freeing the old one, for
     // the same reason task_exit() does: pmm stores each free block's
@@ -349,12 +427,12 @@ int exec_task(const char *path, struct syscall_frame *frame) {
     // dereferences those links through. free_address_space() walks via
     // the physmap (PML4[256]), which the new address space shares, so
     // the old space stays reachable after the switch.
-    uint64_t old_pml4_phys = t->pml4_phys;
-    t->pml4_phys = new_pml4_phys;
+    uint64_t old_pml4_phys = p->pml4_phys;
+    p->pml4_phys = new_pml4_phys;
     __asm__ volatile ("mov %0, %%cr3" :: "r"(new_pml4_phys) : "memory");
     free_address_space(old_pml4_phys);
 
-    cpu_default_fpu_state(t->fpu_state);
+    cpu_default_fpu_state(current_thread()->fpu_state);
 
     frame->rcx = new_entry;       // user RIP the ordinary sysret epilogue will return to
     frame->user_rsp = USER_STACK_TOP;
@@ -432,12 +510,12 @@ static int fork_duplicate_user_pages(uint64_t *parent_pml4, uint64_t *child_pml4
 // the lazy-copy side). Returns the child task on success (the parent
 // syscall path returns its pid), or 0 on failure -- leaving the
 // parent completely unaffected (nothing is left partially modified).
-struct task *fork_task(struct syscall_frame *frame) {
-    struct task *parent = current;
+struct thread *fork_task(struct syscall_frame *frame) {
+    struct process *parent = current_proc();
 
-    struct task *child = alloc_task_slot();
-    if (!child) {
-        serial_write_string("[process] fork FAILED: no free task slot\n");
+    struct process *child_proc = proc_alloc();
+    if (!child_proc) {
+        serial_write_string("[process] fork FAILED: out of memory for process\n");
         return 0;
     }
 
@@ -451,7 +529,6 @@ struct task *fork_task(struct syscall_frame *frame) {
     if (!fork_duplicate_user_pages(parent_pml4, child_pml4)) {
         serial_write_string("[process] fork FAILED: out of memory duplicating page tables\n");
         free_address_space(child_pml4_phys);
-        child->state = TASK_UNUSED;
         return 0;
     }
 
@@ -459,7 +536,6 @@ struct task *fork_task(struct syscall_frame *frame) {
     if (!kstack_phys) {
         serial_write_string("[process] fork FAILED: out of memory for kernel stack\n");
         free_address_space(child_pml4_phys);
-        child->state = TASK_UNUSED;
         return 0;
     }
     zero_frames(kstack_phys, KERNEL_STACK_ORDER);
@@ -481,68 +557,64 @@ struct task *fork_task(struct syscall_frame *frame) {
     *(--sp) = frame->r14;
     *(--sp) = frame->r15;
 
-    child->pid = next_pid++;
-    child->state = TASK_READY;
-    child->saved_rsp = (uint64_t)sp;
-    child->kernel_stack_top = kstack_top;
-    child->kernel_stack_phys = kstack_phys;
-    child->pml4_phys = child_pml4_phys;
-    child->parent_pid = parent->pid;
-    child->exit_code = 0;
-    child->waiting_for_pid = 0;
+    child_proc->pml4_phys   = child_pml4_phys;
+    child_proc->parent_pid  = parent->pid;
+    child_proc->stack_slots = parent->stack_slots;
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        child->files[i] = parent->files[i]; // copied by value -- see docs/stdlib.md
+        child_proc->files[i] = parent->files[i]; // copied by value -- see docs/stdlib.md
         // The copy duplicates the vnode POINTER, so the child owes the
         // cache its own reference; without this the first close on
         // either side would free a vnode the other still holds.
-        if (child->files[i].in_use && child->files[i].vn) {
-            child->files[i].vn->refcount++;
+        if (child_proc->files[i].in_use && child_proc->files[i].vn) {
+            child_proc->files[i].vn->refcount++;
         }
     }
-    for (int i = 0; i < FPU_STATE_SIZE; i++) {
-        child->fpu_state[i] = parent->fpu_state[i];
+
+    // POSIX: only the CALLING thread is duplicated. The child starts
+    // single-threaded no matter how many threads the parent had.
+    struct thread *child = thread_alloc(child_proc);
+    if (!child) {
+        serial_write_string("[process] fork FAILED: out of memory for thread\n");
+        pmm_free(kstack_phys, KERNEL_STACK_ORDER);
+        free_address_space(child_pml4_phys);
+        return 0;
     }
-    child->next = 0;
+    child->saved_rsp = (uint64_t)sp;
+    child->kernel_stack_top = kstack_top;
+    child->kernel_stack_phys = kstack_phys;
+    child->stack_slot = current_thread()->stack_slot;
+    for (int i = 0; i < FPU_STATE_SIZE; i++) {
+        child->fpu_state[i] = current_thread()->fpu_state[i];
+    }
 
     enqueue_ready(child);
     return child;
 }
 
-void task_exit(int code) {
-    current->state = TASK_ZOMBIE;
-    current->exit_code = code;
-    serial_write_string("[process] task exited, pid=");
-    serial_write_hex64((uint64_t)current->pid);
-    serial_write_string(" code=");
-    serial_write_hex64((uint64_t)(int64_t)code);
-    serial_write_string("\n");
-
-    // Uniprocessor critical section (same reasoning as syscall.c's
-    // fs_lock): free_address_space() is now long enough (a full
-    // page-table walk) that a timer interrupt landing mid-walk would
-    // preempt this task -- and since its state is already ZOMBIE (not
-    // READY), schedule() would never re-enqueue it, permanently
-    // abandoning task_exit() before it reaches its own schedule() call
-    // below. The sti before that call pairs with this cli so schedule()
-    // is entered in the same IF state as every other call site; it no
-    // longer matters to the task being switched to, which restores its
-    // own saved IF (see schedule_restore_if).
-    __asm__ volatile ("cli");
-
-    // Release this task's file descriptors. task_exit() has never
-    // closed them -- an invisible leak until now, because nothing
-    // tracked file state beyond the task. With refcounted vnodes it
-    // would pin them permanently and make umount report -EBUSY
-    // forever, so the VFS forces this gap closed.
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        if (current->files[i].in_use && current->files[i].vn) {
-            vnode_put(current->files[i].vn);
-            current->files[i].vn = 0;
-            current->files[i].in_use = 0;
+// Interim: wakes every thread blocked in wait_for_pid on `pid`. The
+// next task replaces this scan with a per-process wait queue.
+static void wake_pid_waiters(int pid) {
+    for (struct process *q = proc_list; q; q = q->next) {
+        for (struct thread *t = q->threads; t; t = t->proc_next) {
+            if (t->state == THREAD_BLOCKED && t->waiting_for_pid == pid) {
+                t->state = THREAD_READY;
+                t->waiting_for_pid = 0;
+                enqueue_ready(t);
+            }
         }
     }
+}
 
-    if (current->pml4_phys) {
+void proc_get(struct process *p) { p->refcount++; }
+
+// Drops one live-thread reference. On the last one, frees the address
+// space and the file descriptors, and turns the process into a zombie
+// carrying only its exit code -- the struct itself outlives its
+// address space and is freed by wait_for_pid's reap.
+void proc_put(struct process *p) {
+    if (--p->refcount > 0) { return; }
+
+    if (p->pml4_phys) {
         // Leave the dying address space BEFORE freeing it. A freed frame
         // stops being page-table data the instant pmm_free() takes it:
         // the buddy allocator stores each free block's next/prev links in
@@ -554,51 +626,101 @@ void task_exit(int code) {
         // mid-call (observed: `free_lists[order]->prev = block` faulting
         // on the head pointer written one statement earlier). Switching
         // to the kernel's own never-freed p4_table is safe here for the
-        // same reason schedule() falls back to it for kernel-only tasks:
-        // kernel text (PML4[511]) and the physmap (PML4[256]) live there
-        // too, and nothing below runs through user mappings.
+        // same reason schedule() falls back to it for kernel-only
+        // threads: kernel text (PML4[511]) and the physmap (PML4[256])
+        // live there too, and nothing below runs through user mappings.
         __asm__ volatile ("mov %0, %%cr3" :: "r"((uint64_t)(uintptr_t)p4_table) : "memory");
-        free_address_space(current->pml4_phys);
-        current->pml4_phys = 0;
+        free_address_space(p->pml4_phys);
+        p->pml4_phys = 0;
     }
 
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (tasks[i].state == TASK_BLOCKED && tasks[i].waiting_for_pid == current->pid) {
-            tasks[i].state = TASK_READY;
-            tasks[i].waiting_for_pid = 0;
-            enqueue_ready(&tasks[i]);
+    // Release the process's file descriptors. With refcounted vnodes,
+    // leaving these open would pin them permanently and make umount
+    // report -EBUSY forever.
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (p->files[i].in_use && p->files[i].vn) {
+            vnode_put(p->files[i].vn);
+            p->files[i].vn = 0;
+            p->files[i].in_use = 0;
         }
+    }
+
+    p->state = PROC_ZOMBIE;
+    wake_pid_waiters(p->pid);
+}
+
+void thread_exit_self(int code) {
+    struct thread *t = current_thread();
+    struct process *p = t->proc;
+
+    __asm__ volatile ("cli");
+
+    t->exit_code = code;
+    t->state     = THREAD_ZOMBIE;
+
+    if (p) {
+        // Unlink from the live list, then park on the zombie list. We
+        // cannot free our own kernel stack -- we are running on it --
+        // so thread_join or wait_for_pid's reap frees it later.
+        struct thread **pp = &p->threads;
+        while (*pp && *pp != t) { pp = &(*pp)->proc_next; }
+        if (*pp) { *pp = t->proc_next; }
+        t->proc_next = p->zombies;
+        p->zombies   = t;
+
+        proc_put(p);
     }
 
     __asm__ volatile ("sti");
     schedule();
     for (;;) {
-        __asm__ volatile ("hlt"); // unreachable: schedule() never resumes a ZOMBIE task
+        __asm__ volatile ("hlt"); // unreachable: schedule() never resumes a ZOMBIE
     }
 }
 
+void process_exit(int code) {
+    struct process *p = current_proc();
+    p->exiting   = 1;
+    p->exit_code = code;
+
+    serial_write_string("[process] task exited, pid=");
+    serial_write_hex64((uint64_t)p->pid);
+    serial_write_string(" code=");
+    serial_write_hex64((uint64_t)(int64_t)code);
+    serial_write_string("\n");
+
+    thread_exit_self(code);
+}
+
 int64_t wait_for_pid(int pid) {
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (tasks[i].pid == pid && tasks[i].state == TASK_ZOMBIE) {
-            int code = tasks[i].exit_code;
-            pmm_free(tasks[i].kernel_stack_phys, KERNEL_STACK_ORDER);
-            tasks[i].state = TASK_UNUSED;
-            return code;
-        }
+    struct process *p = proc_find(pid);
+    if (!p) { return -1; }
+
+    while (p->state != PROC_ZOMBIE) {
+        current_thread()->state = THREAD_BLOCKED;
+        current_thread()->waiting_for_pid = pid;
+        schedule();
     }
 
-    current->waiting_for_pid = pid;
-    current->state = TASK_BLOCKED;
-    schedule();
+    int code = p->exit_code;
 
-    // Resumed here once task_exit() (for our target pid) re-enqueued us.
-    for (int i = 0; i < MAX_TASKS; i++) {
-        if (tasks[i].pid == pid && tasks[i].state == TASK_ZOMBIE) {
-            int code = tasks[i].exit_code;
-            pmm_free(tasks[i].kernel_stack_phys, KERNEL_STACK_ORDER);
-            tasks[i].state = TASK_UNUSED;
-            return code;
-        }
+    // Free every zombie thread's kernel stack and struct, then the
+    // process itself. Safe here: none of them is running.
+    struct thread *z = p->zombies;
+    while (z) {
+        struct thread *next = z->proc_next;
+        pmm_free(z->kernel_stack_phys, KERNEL_STACK_ORDER);
+        kfree(z);
+        z = next;
     }
-    return -1; // shouldn't happen given task_exit's wake-up guarantee
+    p->zombies = 0;
+
+    uint64_t f = spin_lock_irqsave(&proc_lock);
+    struct process **pp = &proc_list;
+    while (*pp && *pp != p) { pp = &(*pp)->next; }
+    if (*pp) { *pp = p->next; }
+    spin_unlock_irqrestore(&proc_lock, f);
+
+    kfree(p);
+    return code;
 }

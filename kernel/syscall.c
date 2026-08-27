@@ -116,7 +116,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
     (void)frame; // unused until fork()/exec() land
     switch (num) {
         case SYS_EXIT:
-            task_exit((int)a1);
+            process_exit((int)a1);
             return 0; // unreachable -- task_exit never returns
         case SYS_WRITE: {
             int fd = (int)a1;
@@ -125,7 +125,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd];
+            struct file_descriptor *f = &current_proc()->files[fd];
             if (!f->in_use || !f->writable) {
                 return -EBADF;
             }
@@ -146,7 +146,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd];
+            struct file_descriptor *f = &current_proc()->files[fd];
             if (!f->in_use) {
                 return -EBADF;
             }
@@ -156,14 +156,14 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             return n;
         }
         case SYS_GETPID:
-            return current_task()->pid;
+            return current_proc()->pid;
         case SYS_YIELD:
             schedule();
             return 0;
         case SYS_SPAWN: {
             char path_buf[64];
             copy_user_path(a1, a2, path_buf, sizeof(path_buf));
-            struct task *child = spawn(path_buf);
+            struct process *child = spawn(path_buf);
             return child ? child->pid : -1;
         }
         case SYS_WAIT:
@@ -173,7 +173,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             copy_user_path(a1, a2, path_buf, sizeof(path_buf));
             int flags = (int)a3;
 
-            struct task *task = current_task();
+            struct process *task = current_proc();
             // Slots 0-2 are the standard streams, opened at process
             // creation; ordinary opens start above them.
             int slot = -1;
@@ -221,7 +221,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd];
+            struct file_descriptor *f = &current_proc()->files[fd];
             if (!f->in_use) {
                 return -EBADF;
             }
@@ -263,7 +263,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd];
+            struct file_descriptor *f = &current_proc()->files[fd];
             if (!f->in_use) {
                 return -EBADF;
             }
@@ -282,8 +282,8 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             return new_position;
         }
         case SYS_FORK: {
-            struct task *child = fork_task(frame);
-            return child ? child->pid : -1;
+            struct thread *child = fork_task(frame);
+            return child ? child->proc->pid : -1;
         }
         case SYS_EXEC: {
             char path_buf[64];
@@ -314,7 +314,7 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             int count = (int)a3;
             if (fd < 0 || fd >= MAX_OPEN_FILES || count <= 0) { return -EBADF; }
 
-            struct file_descriptor *f = &current_task()->files[fd];
+            struct file_descriptor *f = &current_proc()->files[fd];
             if (!f->in_use) { return -EBADF; }
             if (f->vn->type != VNODE_DIR) { return -ENOTDIR; }
 

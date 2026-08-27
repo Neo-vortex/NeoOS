@@ -3,24 +3,21 @@
 
 #include <stdint.h>
 #include "cpu.h"
+#include "lock.h"
 #include "fs/vfs.h"
 
-#define MAX_TASKS 16
-#define KERNEL_STACK_ORDER 2 // 4 frames = 16KiB
-// 16 entries indexed DIRECTLY by fd. Before the VFS, fds 0-2 were
-// special-cased integers in syscall_dispatch and this array started at
-// fd 3; now /dev/CONSOLE is a real vnode opened on 0, 1, and 2 at
-// process creation, so the fd IS the index.
+// 16 entries indexed DIRECTLY by fd. /dev/CONSOLE is a real vnode
+// opened on 0, 1 and 2 at process creation, so the fd IS the index.
+// The table belongs to the PROCESS: threads share it.
 #define MAX_OPEN_FILES 16
+#define KERNEL_STACK_ORDER 2 // 4 frames = 16KiB
 
 // Mirrors syscall_entry.asm's saved-register block exactly, in
-// increasing-address order (the reverse of push order, since the
-// last register pushed ends up at the lowest address). A pointer to
-// the base of this block -- which already equals RSP right after the
-// pushes, before `call syscall_dispatch` -- is passed into
-// syscall_dispatch as its 6th argument, letting fork() copy a
-// caller's full user-mode context and exec() overwrite its own
-// return RIP/RSP in place.
+// increasing-address order (the reverse of push order, since the last
+// register pushed ends up at the lowest address). A pointer to the
+// base of this block is passed into syscall_dispatch as its 6th
+// argument, letting fork() copy a caller's full user-mode context and
+// exec() overwrite its own return RIP/RSP in place.
 struct syscall_frame {
     uint64_t r9, r8, r10, rdx, rsi, rdi;
     uint64_t r15, r14, r13, r12, rbp, rbx;
@@ -29,57 +26,92 @@ struct syscall_frame {
     uint64_t user_rsp;
 };
 
-enum task_state { TASK_UNUSED, TASK_READY, TASK_RUNNING, TASK_BLOCKED, TASK_ZOMBIE };
+enum thread_state { THREAD_UNUSED, THREAD_READY, THREAD_RUNNING,
+                    THREAD_BLOCKED, THREAD_ZOMBIE };
 
 struct file_descriptor {
     int in_use;
-    struct vnode *vn;   // reference held; released by close/exit
+    struct vnode *vn;   // reference held; released by close/process exit
     uint32_t position;  // per-fd, NOT shared across fork -- see docs/stdlib.md
     int writable;
 };
 
-struct task {
-    int pid;
-    enum task_state state;
+struct waitq; // waitq.h
+
+struct thread;
+
+struct process {
+    int pid, parent_pid;
+    // One reference per LIVE thread. When it reaches zero the address
+    // space is freed and the process becomes a zombie carrying only
+    // its exit code; the struct itself outlives the address space and
+    // is freed by wait_for_pid's reap.
+    uint32_t refcount;
+    uint64_t pml4_phys;             // 0 = shares the kernel address space
+    struct file_descriptor files[MAX_OPEN_FILES];
+    struct thread *threads;         // live threads, via thread->proc_next
+    struct thread *zombies;         // exited, unjoined; freed at reap
+    uint16_t stack_slots;           // bitmap of live thread user stacks
+    int exiting;
+    int exit_code;
+    enum { PROC_ALIVE, PROC_ZOMBIE } state;
+    struct process *next;           // global process list
+};
+
+struct thread {
+    int tid;                        // 0 == an idle thread (never a pid)
+    struct process *proc;           // 0 for the pre-process idle thread
+    enum thread_state state;
     uint64_t saved_rsp;
     uint64_t kernel_stack_top;
-    uint64_t kernel_stack_phys; // for freeing at reap time (see wait_for_pid)
-    uint64_t pml4_phys; // 0 = share the kernel's own address space (kernel-mode-only task)
-    int parent_pid;
+    uint64_t kernel_stack_phys;
+    int stack_slot;                 // -1 for kernel-only threads
+    int kill_pending;
     int exit_code;
-    int waiting_for_pid; // 0 = not blocked in wait(); else the PID this task is waiting on
-    struct file_descriptor files[MAX_OPEN_FILES];
+    // Interim wait bookkeeping, replaced by a waitq in the next task.
+    int waiting_for_pid;
+    struct waitq *blocked_on;
     uint8_t fpu_state[FPU_STATE_SIZE] __attribute__((aligned(16)));
-    struct task *next; // ready-queue link
+    struct thread *proc_next;       // sibling / zombie list link
+    struct thread *next;            // ready-queue link
 };
 
 void process_init(void);
-
-// Creates a task that starts executing `entry` directly in ring 0,
-// sharing the kernel's own address space. Used only by this
-// milestone's early tests (Tasks 3-4) -- real processes (Task 5
-// onward) are built by spawn() instead.
-struct task *task_create_kernel_thread(void (*entry)(void));
-
 void schedule(void);
-struct task *current_task(void);
+
+struct thread  *current_thread(void);
+struct process *current_proc(void);
+
+// Creates a thread that starts executing `entry` directly in ring 0,
+// sharing the kernel's own address space. Used by selftests and by the
+// idle thread; real processes come from spawn() instead.
+struct thread *thread_alloc_kernel(void (*entry)(void));
+
+// Run-queue insertion, shared with waitq.c's wake path.
+void thread_enqueue_ready(struct thread *t);
 
 #define USER_STACK_PAGES 4
 #define USER_STACK_TOP 0x0000700000000000ULL
 
-struct task *spawn(const char *path);
+struct process *spawn(const char *path);
 
-// Duplicates the calling task, sharing its user frames copy-on-write.
-// Returns the new child task, or 0 on failure (parent unaffected).
-struct task *fork_task(struct syscall_frame *frame);
+// Duplicates the calling THREAD into a new single-threaded process,
+// sharing user frames copy-on-write. Returns the child's thread, or 0
+// on failure (parent unaffected).
+struct thread *fork_task(struct syscall_frame *frame);
 
-// Replaces the calling task's address space with the ELF at `path`,
-// preserving its pid, parent, and open files. Returns 1 on success
-// (the syscall's sysret lands in the new program), or 0 on failure
-// with the caller left completely unchanged.
 int exec_task(const char *path, struct syscall_frame *frame);
 
-void task_exit(int code);
+// Ends the calling thread only. When it is the last live thread of its
+// process, the address space is freed and waiters are woken.
+void thread_exit_self(int code) __attribute__((noreturn));
+
+// Ends the whole process.
+void process_exit(int code) __attribute__((noreturn));
+
 int64_t wait_for_pid(int pid);
+
+void proc_get(struct process *p);
+void proc_put(struct process *p);
 
 #endif

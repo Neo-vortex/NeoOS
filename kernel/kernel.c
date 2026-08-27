@@ -96,7 +96,7 @@ void kmain(void *multiboot_info) {
     process_init();
     syscall_init();
 
-    struct task *parent_task = spawn("/BIN/PARENT.ELF");
+    struct process *parent_task = spawn("/BIN/PARENT.ELF");
     if (!parent_task) {
         serial_write_string("[process] spawn FAILED for /BIN/PARENT.ELF\n");
     }
