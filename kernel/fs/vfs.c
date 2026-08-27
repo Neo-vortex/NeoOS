@@ -1,5 +1,6 @@
 #include "vfs.h"
 #include "ramfs.h"
+#include "fatfs.h"
 #include "../errno.h"
 #include "../serial.h"
 
@@ -181,8 +182,10 @@ int vfs_mount_fs(const char *source, const char *target, const char *fstype) {
 
     if (str_eq(fstype, "ramfs")) {
         m->ops = &ramfs_ops;
+    } else if (str_eq(fstype, "fat")) {
+        m->ops = &fatfs_ops;
     } else {
-        return -ENODEV; // "fat" and "devfs" arrive in later tasks
+        return -ENODEV; // "devfs" arrives in a later task
     }
 
     str_copy(m->path, target, VFS_MAX_PATH);
@@ -441,6 +444,29 @@ void vfs_selftest(void) {
         return;
     }
     vnode_put(root);
+
+    // Read a file that exists on the FAT16 root volume, proving the
+    // driver works through the same interface ramfs just did.
+    struct vnode *hello = vfs_resolve("/HELLO.TXT", &err);
+    if (!hello) {
+        serial_write_string("[vfs] selftest FAILED: resolve /HELLO.TXT\n");
+        return;
+    }
+    char hbuf[16] = {0};
+    if (hello->mount->ops->read(hello, 0, hbuf, 5) != 5 || hbuf[0] != 'H') {
+        serial_write_string("[vfs] selftest FAILED: FAT read through VFS\n");
+        vnode_put(hello);
+        return;
+    }
+    vnode_put(hello);
+
+    // And one in a subdirectory, proving multi-component resolution.
+    struct vnode *nested = vfs_resolve("/DIR/NESTED.TXT", &err);
+    if (!nested) {
+        serial_write_string("[vfs] selftest FAILED: resolve /DIR/NESTED.TXT\n");
+        return;
+    }
+    vnode_put(nested);
 
     serial_write_string("[vfs] selftest passed\n");
 }

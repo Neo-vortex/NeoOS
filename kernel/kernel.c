@@ -14,7 +14,7 @@
 #include "mm/paging.h"
 #include "mm/heap.h"
 #include "ata.h"
-#include "fat16.h"
+#include "fs/fatfs.h"
 #include "fs/vfs.h"
 #include "process.h"
 #include "syscall.h"
@@ -76,7 +76,8 @@ void kmain(void *multiboot_info) {
     fat16_write_selftest();
 
     vfs_init();
-    vfs_mount_fs(0, "/tmp", "ramfs");
+    vfs_mount_fs("hd0", "/",    "fat");
+    vfs_mount_fs(0,     "/tmp", "ramfs");
     vfs_selftest();
 
     cpu_init();

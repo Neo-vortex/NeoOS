@@ -1,8 +1,19 @@
-#ifndef NEOOS_FAT16_H
-#define NEOOS_FAT16_H
+#ifndef NEOOS_FATFS_H
+#define NEOOS_FATFS_H
 
 #include <stdint.h>
-#include "errno.h"
+#include "../errno.h"
+#include "vfs.h"
+
+// FAT inode identity is the file's directory-entry location on disk,
+// (dir_entry_lba << 16) | dir_entry_offset -- unique per file per
+// volume. First cluster will not serve: every empty file has cluster
+// 0. Reserved id 0 means the root directory, which has no directory
+// entry of its own; that cannot collide with a real entry, because id
+// 0 requires dir_entry_lba == 0 and LBA 0 is the boot sector.
+#define FATFS_ROOT_INODE 0ULL
+
+extern const struct vfs_ops fatfs_ops;
 
 int fat16_mount(void);
 void fat16_selftest(void);

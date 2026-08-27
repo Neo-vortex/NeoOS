@@ -4,7 +4,7 @@
 #include "mm/heap.h"
 #include "tss.h"
 #include "serial.h"
-#include "fat16.h"
+#include "fs/fatfs.h"
 #include "elf.h"
 #include "cpu.h"
 

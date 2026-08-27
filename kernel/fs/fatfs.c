@@ -1,8 +1,8 @@
-#include "fat16.h"
-#include "ata.h"
-#include "serial.h"
-#include "mm/heap.h"
-#include "errno.h"
+#include "fatfs.h"
+#include "../ata.h"
+#include "../serial.h"
+#include "../mm/heap.h"
+#include "../errno.h"
 
 #define FAT_ATTR_DIRECTORY 0x10
 #define FAT_ATTR_VOLUME_ID 0x08
@@ -71,25 +71,34 @@ static uint32_t cluster_to_lba(struct fat_volume *v, uint16_t cluster) {
     return v->data_start_lba + (uint32_t)(cluster - 2) * v->sectors_per_cluster;
 }
 
-int fat16_mount(void) {
-    struct fat_volume *v = &legacy_volume;
-    v->drive = 0;
+// Reads and parses the boot sector into v, which must already have
+// v->drive set. Returns 1 on success. Shared by the legacy
+// fat16_mount() and the VFS driver's mount op.
+static int fat_read_bpb(struct fat_volume *v) {
     uint8_t sector[SECTOR_SIZE];
     if (!ata_read_sectors(v->drive, 0, 1, sector)) {
-        serial_write_string("[fat16] mount FAILED: could not read boot sector\n");
         return 0;
     }
-
     struct fat16_bpb *bpb = (struct fat16_bpb *)sector;
     v->bytes_per_sector = bpb->bytes_per_sector;
     v->sectors_per_cluster = bpb->sectors_per_cluster;
     v->root_entry_count = bpb->root_entry_count;
     v->sectors_per_fat = bpb->sectors_per_fat;
-
     v->fat_start_lba = bpb->reserved_sector_count;
     v->root_dir_start_lba = v->fat_start_lba + (uint32_t)bpb->num_fats * bpb->sectors_per_fat;
-    v->root_dir_sector_count = ((uint32_t)v->root_entry_count * sizeof(struct fat16_dirent) + v->bytes_per_sector - 1) / v->bytes_per_sector;
+    v->root_dir_sector_count = ((uint32_t)v->root_entry_count * sizeof(struct fat16_dirent)
+                                 + v->bytes_per_sector - 1) / v->bytes_per_sector;
     v->data_start_lba = v->root_dir_start_lba + v->root_dir_sector_count;
+    return 1;
+}
+
+int fat16_mount(void) {
+    struct fat_volume *v = &legacy_volume;
+    v->drive = 0;
+    if (!fat_read_bpb(v)) {
+        serial_write_string("[fat16] mount FAILED: could not read boot sector\n");
+        return 0;
+    }
 
     serial_write_string("[fat16] mounted: bytes_per_sector=");
     serial_write_hex64(v->bytes_per_sector);
@@ -228,8 +237,7 @@ uint32_t fat16_read_file(uint16_t first_cluster, uint32_t size, void *buffer) {
     return bytes_read;
 }
 
-void fat16_read_at(uint16_t first_cluster, uint32_t position, void *buf, uint32_t len) {
-    struct fat_volume *v = &legacy_volume;
+void fat16_read_at_v(struct fat_volume *v, uint16_t first_cluster, uint32_t position, void *buf, uint32_t len) {
     uint8_t *out = (uint8_t *)buf;
     uint32_t cluster_size_bytes = (uint32_t)v->sectors_per_cluster * v->bytes_per_sector;
     uint32_t read_so_far = 0;
@@ -258,10 +266,9 @@ void fat16_read_at(uint16_t first_cluster, uint32_t position, void *buf, uint32_
     }
 }
 
-int fat16_write_file(uint16_t first_cluster, uint32_t current_size, uint32_t position,
+int fat16_write_file_v(struct fat_volume *v, uint16_t first_cluster, uint32_t current_size, uint32_t position,
                       const void *buf, uint32_t len,
                       uint16_t *out_first_cluster, uint32_t *out_new_size) {
-    struct fat_volume *v = &legacy_volume;
     if (len == 0) {
         *out_first_cluster = first_cluster;
         *out_new_size = current_size;
@@ -310,8 +317,7 @@ int fat16_write_file(uint16_t first_cluster, uint32_t current_size, uint32_t pos
     return (int)len;
 }
 
-void fat16_truncate(uint16_t first_cluster, uint32_t dir_lba, uint16_t dir_offset, uint16_t *out_first_cluster) {
-    struct fat_volume *v = &legacy_volume;
+void fat16_truncate_v(struct fat_volume *v, uint16_t first_cluster, uint32_t dir_lba, uint16_t dir_offset, uint16_t *out_first_cluster) {
     if (first_cluster != 0) {
         fat16_free_chain(v, first_cluster);
     }
@@ -670,8 +676,7 @@ int fat16_delete_entry(const char *path) {
     return 0;
 }
 
-void fat16_update_entry_size(uint32_t dir_lba, uint16_t dir_offset, uint16_t first_cluster, uint32_t size) {
-    struct fat_volume *v = &legacy_volume;
+void fat16_update_entry_size_v(struct fat_volume *v, uint32_t dir_lba, uint16_t dir_offset, uint16_t first_cluster, uint32_t size) {
     uint8_t sector[SECTOR_SIZE];
     ata_read_sectors(v->drive, dir_lba, 1, sector);
     struct fat16_dirent *entry = (struct fat16_dirent *)(sector + dir_offset);
@@ -950,3 +955,368 @@ void fat16_write_selftest(void) {
 
     serial_write_string("[fat16] write selftest passed\n");
 }
+
+// Legacy single-volume wrappers. Each is the only thing still binding
+// &legacy_volume for these four operations; they disappear with the
+// rest of the legacy API once syscall.c moves to the VFS.
+void fat16_read_at(uint16_t first_cluster, uint32_t position, void *buf, uint32_t len) {
+    fat16_read_at_v(&legacy_volume, first_cluster, position, buf, len);
+}
+
+int fat16_write_file(uint16_t first_cluster, uint32_t current_size, uint32_t position,
+                      const void *buf, uint32_t len,
+                      uint16_t *out_first_cluster, uint32_t *out_new_size) {
+    return fat16_write_file_v(&legacy_volume, first_cluster, current_size, position,
+                               buf, len, out_first_cluster, out_new_size);
+}
+
+void fat16_truncate(uint16_t first_cluster, uint32_t dir_lba, uint16_t dir_offset,
+                    uint16_t *out_first_cluster) {
+    fat16_truncate_v(&legacy_volume, first_cluster, dir_lba, dir_offset, out_first_cluster);
+}
+
+void fat16_update_entry_size(uint32_t dir_lba, uint16_t dir_offset, uint16_t first_cluster,
+                             uint32_t size) {
+    fat16_update_entry_size_v(&legacy_volume, dir_lba, dir_offset, first_cluster, size);
+}
+
+// ---------------------------------------------------------------------
+// VFS driver
+// ---------------------------------------------------------------------
+
+// Per-open-file driver state, hung off vnode->fs_private. These are
+// exactly the three fields that used to live in struct
+// file_descriptor -- moving them here is what decouples syscall.c
+// from FAT.
+struct fatfs_inode {
+    int      in_use;
+    uint16_t first_cluster;
+    uint32_t dir_entry_lba;
+    uint16_t dir_entry_offset;
+    uint32_t size;
+    int      is_dir;
+    int      dirty_cluster; // first_cluster changed since read_inode
+};
+
+#define FATFS_MAX_INODES MAX_VNODES
+static struct fatfs_inode inode_pool[FATFS_MAX_INODES];
+
+#define FATFS_MAX_VOLUMES 4
+static struct fat_volume volumes[FATFS_MAX_VOLUMES];
+static int volume_used[FATFS_MAX_VOLUMES];
+
+static struct fatfs_inode *inode_alloc(void) {
+    for (int i = 0; i < FATFS_MAX_INODES; i++) {
+        if (!inode_pool[i].in_use) {
+            inode_pool[i].in_use = 1;
+            inode_pool[i].dirty_cluster = 0;
+            return &inode_pool[i];
+        }
+    }
+    return 0;
+}
+
+static uint64_t inode_id_of(uint32_t lba, uint16_t offset) {
+    return ((uint64_t)lba << 16) | offset;
+}
+
+// Inverse of to_fat_name: "FILE    TXT" -> "FILE.TXT".
+static void from_fat_name(const uint8_t *raw, char *out) {
+    int o = 0;
+    for (int i = 0; i < 8 && raw[i] != ' '; i++) { out[o++] = (char)raw[i]; }
+    if (raw[8] != ' ') {
+        out[o++] = '.';
+        for (int i = 8; i < 11 && raw[i] != ' '; i++) { out[o++] = (char)raw[i]; }
+    }
+    out[o] = '\0';
+}
+
+// Marks a directory entry deleted in place by writing 0xE5 over the
+// first name byte -- the same thing fat16_delete_entry does inline;
+// this exposes it for the VFS path.
+static int mark_dirent_deleted(struct fat_volume *v, uint32_t lba, uint16_t offset) {
+    uint8_t sector[SECTOR_SIZE];
+    if (!ata_read_sectors(v->drive, lba, 1, sector)) { return -ENOSPC; }
+    sector[offset] = 0xE5;
+    if (!ata_write_sectors(v->drive, lba, 1, sector)) { return -ENOSPC; }
+    return 0;
+}
+
+// Returns the index'th real 8.3 entry of a directory, skipping free
+// (0x00), deleted (0xE5), volume-label, and VFAT long-name entries.
+// Contract matches ramfs: 0 with *out filled for a valid index,
+// -ENOENT once past the last entry.
+static int fat_dir_nth(struct fat_volume *v, uint16_t dir_cluster, int in_root,
+                       uint32_t index, struct dirent *out) {
+    uint32_t seen = 0;
+    uint32_t sectors = in_root ? v->root_dir_sector_count : v->sectors_per_cluster;
+    uint16_t cluster = dir_cluster;
+
+    for (;;) {
+        uint32_t base = in_root ? v->root_dir_start_lba : cluster_to_lba(v, cluster);
+        for (uint32_t s = 0; s < sectors; s++) {
+            uint8_t sector[SECTOR_SIZE];
+            if (!ata_read_sectors(v->drive, base + s, 1, sector)) { return -ENOENT; }
+            for (uint32_t o = 0; o < SECTOR_SIZE; o += sizeof(struct fat16_dirent)) {
+                struct fat16_dirent *de = (struct fat16_dirent *)(sector + o);
+                if (de->name[0] == 0x00) { return -ENOENT; } // end of directory
+                if (de->name[0] == 0xE5) { continue; }       // deleted
+                if ((de->attr & FAT_ATTR_LONG_NAME) == FAT_ATTR_LONG_NAME) { continue; }
+                if (de->attr & FAT_ATTR_VOLUME_ID) { continue; }
+                if (seen == index) {
+                    from_fat_name(de->name, out->name);
+                    out->type = (de->attr & FAT_ATTR_DIRECTORY) ? DT_DIR : DT_REG;
+                    return 0;
+                }
+                seen++;
+            }
+        }
+        if (in_root) { return -ENOENT; }
+        cluster = fat16_next_cluster(v, cluster);
+        if (cluster >= FAT16_EOC_MIN || cluster < 2) { return -ENOENT; }
+    }
+}
+
+static int fatfs_mount_op(struct vfs_mount *m, const char *source) {
+    uint8_t drive;
+    if (source && source[0] == 'h' && source[1] == 'd' && source[2] == '1') {
+        drive = 1;
+    } else if (source && source[0] == 'h' && source[1] == 'd' && source[2] == '0') {
+        drive = 0;
+    } else {
+        return -ENODEV;
+    }
+
+    int slot = -1;
+    for (int i = 0; i < FATFS_MAX_VOLUMES; i++) {
+        if (!volume_used[i]) { slot = i; break; }
+    }
+    if (slot < 0) { return -ENOSPC; }
+
+    struct fat_volume *v = &volumes[slot];
+    v->drive = drive;
+    if (!fat_read_bpb(v)) {
+        return -ENODEV;
+    }
+
+    volume_used[slot] = 1;
+    m->fs_private = v;
+
+    serial_write_string("[fatfs] mounted drive=");
+    serial_write_hex64(v->drive);
+    serial_write_string("\n");
+    return 0;
+}
+
+static void fatfs_umount_op(struct vfs_mount *m) {
+    struct fat_volume *v = (struct fat_volume *)m->fs_private;
+    for (int i = 0; i < FATFS_MAX_VOLUMES; i++) {
+        if (&volumes[i] == v) { volume_used[i] = 0; }
+    }
+    m->fs_private = 0;
+}
+
+static int fatfs_read_inode(struct vfs_mount *m, uint64_t inode_id, struct vnode *out) {
+    struct fat_volume *v = (struct fat_volume *)m->fs_private;
+
+    struct fatfs_inode *n = inode_alloc();
+    if (!n) { return -ENFILE; }
+
+    if (inode_id == FATFS_ROOT_INODE) {
+        n->first_cluster = 0;      // FAT16: the fixed root region
+        n->dir_entry_lba = 0;
+        n->dir_entry_offset = 0;
+        n->size = 0;
+        n->is_dir = 1;
+        out->type = VNODE_DIR;
+        out->size = 0;
+        out->fs_private = n;
+        return 0;
+    }
+
+    uint32_t lba = (uint32_t)(inode_id >> 16);
+    uint16_t off = (uint16_t)(inode_id & 0xFFFF);
+
+    uint8_t sector[SECTOR_SIZE];
+    if (!ata_read_sectors(v->drive, lba, 1, sector)) {
+        n->in_use = 0;
+        return -ENOENT;
+    }
+    struct fat16_dirent *de = (struct fat16_dirent *)(sector + off);
+
+    n->first_cluster = de->first_cluster_low;
+    n->dir_entry_lba = lba;
+    n->dir_entry_offset = off;
+    n->size = de->file_size;
+    n->is_dir = (de->attr & FAT_ATTR_DIRECTORY) != 0;
+
+    out->type = n->is_dir ? VNODE_DIR : VNODE_FILE;
+    out->size = n->size;
+    out->fs_private = n;
+    return 0;
+}
+
+static int fatfs_sync_inode(struct vnode *vn) {
+    struct fatfs_inode *n = (struct fatfs_inode *)vn->fs_private;
+    if (!n) { return 0; }
+    struct fat_volume *v = (struct fat_volume *)vn->mount->fs_private;
+    // Push any size/cluster change back into the directory entry. The
+    // root has no entry to patch.
+    if (vn->inode_id != FATFS_ROOT_INODE && (n->size != vn->size || n->dirty_cluster)) {
+        fat16_update_entry_size_v(v, n->dir_entry_lba, n->dir_entry_offset,
+                                  n->first_cluster, vn->size);
+    }
+    n->in_use = 0;
+    return 0;
+}
+
+static int fatfs_lookup(struct vnode *dir, const char *name, uint64_t *out_inode_id) {
+    struct fat_volume *v = (struct fat_volume *)dir->mount->fs_private;
+    struct fatfs_inode *d = (struct fatfs_inode *)dir->fs_private;
+
+    uint8_t fat_name[11];
+    to_fat_name(name, fat_name);
+
+    struct fat16_dirent found;
+    uint32_t lba;
+    uint16_t off;
+    int ok = (dir->inode_id == FATFS_ROOT_INODE)
+           ? find_in_root(v, fat_name, &found, &lba, &off)
+           : find_in_directory_cluster(v, d->first_cluster, fat_name, &found, &lba, &off);
+    if (!ok) {
+        return -ENOENT;
+    }
+    *out_inode_id = inode_id_of(lba, off);
+    return 0;
+}
+
+static int64_t fatfs_read(struct vnode *vn, uint32_t pos, void *buf, uint32_t len) {
+    struct fat_volume *v = (struct fat_volume *)vn->mount->fs_private;
+    struct fatfs_inode *n = (struct fatfs_inode *)vn->fs_private;
+    if (pos >= vn->size) { return 0; }
+    if (pos + len > vn->size) { len = vn->size - pos; }
+    fat16_read_at_v(v, n->first_cluster, pos, buf, len);
+    return (int64_t)len;
+}
+
+static int64_t fatfs_write(struct vnode *vn, uint32_t pos, const void *buf, uint32_t len) {
+    struct fat_volume *v = (struct fat_volume *)vn->mount->fs_private;
+    struct fatfs_inode *n = (struct fatfs_inode *)vn->fs_private;
+
+    uint16_t new_cluster;
+    uint32_t new_size;
+    int rc = fat16_write_file_v(v, n->first_cluster, vn->size, pos, buf, len,
+                                &new_cluster, &new_size);
+    if (rc < 0) { return rc; }
+
+    if (new_cluster != n->first_cluster) {
+        n->first_cluster = new_cluster;
+        n->dirty_cluster = 1;
+    }
+    vn->size = new_size;
+    // Patch the directory entry now rather than at sync_inode time:
+    // the entry must be correct on disk even if the machine stops
+    // before the last fd closes.
+    fat16_update_entry_size_v(v, n->dir_entry_lba, n->dir_entry_offset, new_cluster, new_size);
+    n->size = new_size;
+    return (int64_t)len;
+}
+
+static int fatfs_create(struct vnode *dir, const char *name, uint64_t *out_inode_id) {
+    struct fat_volume *v = (struct fat_volume *)dir->mount->fs_private;
+    struct fatfs_inode *d = (struct fatfs_inode *)dir->fs_private;
+
+    uint8_t fat_name[11];
+    to_fat_name(name, fat_name);
+
+    uint32_t lba;
+    uint16_t off;
+    int rc = create_entry_in_directory(v, d->first_cluster,
+                                       dir->inode_id == FATFS_ROOT_INODE,
+                                       fat_name, 0, 0, 0, &lba, &off);
+    if (rc != 0) { return rc; }
+    *out_inode_id = inode_id_of(lba, off);
+    return 0;
+}
+
+static int fatfs_mkdir_op(struct vnode *dir, const char *name) {
+    struct fat_volume *v = (struct fat_volume *)dir->mount->fs_private;
+    struct fatfs_inode *d = (struct fatfs_inode *)dir->fs_private;
+
+    uint8_t fat_name[11];
+    to_fat_name(name, fat_name);
+
+    uint16_t cluster = fat16_alloc_cluster(v);
+    if (!cluster) { return -ENOSPC; }
+    fat16_set_next_cluster(v, cluster, FAT16_EOC_MIN);
+
+    // Zero the new directory's cluster so its first entry reads as
+    // end-of-directory rather than whatever was there before.
+    uint8_t zero[SECTOR_SIZE];
+    for (int i = 0; i < SECTOR_SIZE; i++) { zero[i] = 0; }
+    uint32_t base = cluster_to_lba(v, cluster);
+    for (uint32_t s = 0; s < v->sectors_per_cluster; s++) {
+        ata_write_sectors(v->drive, base + s, 1, zero);
+    }
+
+    uint32_t lba;
+    uint16_t off;
+    int rc = create_entry_in_directory(v, d->first_cluster,
+                                       dir->inode_id == FATFS_ROOT_INODE,
+                                       fat_name, FAT_ATTR_DIRECTORY, cluster, 0, &lba, &off);
+    if (rc != 0) { fat16_free_chain(v, cluster); }
+    return rc;
+}
+
+static int fatfs_unlink_op(struct vnode *dir, const char *name) {
+    struct fat_volume *v = (struct fat_volume *)dir->mount->fs_private;
+    struct fatfs_inode *d = (struct fatfs_inode *)dir->fs_private;
+
+    uint8_t fat_name[11];
+    to_fat_name(name, fat_name);
+
+    struct fat16_dirent found;
+    uint32_t lba;
+    uint16_t off;
+    int ok = (dir->inode_id == FATFS_ROOT_INODE)
+           ? find_in_root(v, fat_name, &found, &lba, &off)
+           : find_in_directory_cluster(v, d->first_cluster, fat_name, &found, &lba, &off);
+    if (!ok) { return -ENOENT; }
+    if (found.attr & FAT_ATTR_DIRECTORY) { return -EISDIR; }
+
+    if (found.first_cluster_low != 0) {
+        fat16_free_chain(v, found.first_cluster_low);
+    }
+    return mark_dirent_deleted(v, lba, off);
+}
+
+static int fatfs_truncate_op(struct vnode *vn) {
+    struct fat_volume *v = (struct fat_volume *)vn->mount->fs_private;
+    struct fatfs_inode *n = (struct fatfs_inode *)vn->fs_private;
+    fat16_truncate_v(v, n->first_cluster, n->dir_entry_lba, n->dir_entry_offset,
+                     &n->first_cluster);
+    vn->size = 0;
+    n->size = 0;
+    return 0;
+}
+
+static int fatfs_readdir_op(struct vnode *dir, uint32_t index, struct dirent *out) {
+    struct fat_volume *v = (struct fat_volume *)dir->mount->fs_private;
+    struct fatfs_inode *d = (struct fatfs_inode *)dir->fs_private;
+    return fat_dir_nth(v, d->first_cluster, dir->inode_id == FATFS_ROOT_INODE, index, out);
+}
+
+const struct vfs_ops fatfs_ops = {
+    .mount      = fatfs_mount_op,
+    .umount     = fatfs_umount_op,
+    .read_inode = fatfs_read_inode,
+    .sync_inode = fatfs_sync_inode,
+    .lookup     = fatfs_lookup,
+    .read       = fatfs_read,
+    .write      = fatfs_write,
+    .create     = fatfs_create,
+    .mkdir      = fatfs_mkdir_op,
+    .unlink     = fatfs_unlink_op,
+    .truncate   = fatfs_truncate_op,
+    .readdir    = fatfs_readdir_op,
+};
