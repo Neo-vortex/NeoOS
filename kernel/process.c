@@ -308,6 +308,13 @@ struct task *spawn(const char *path) {
         t->files[i].in_use = 0;
         t->files[i].vn = 0;
     }
+    // Standard streams as real /dev/CONSOLE vnodes. stdin is opened
+    // read-only and always returns EOF; stdout and stderr both write
+    // to the console. Before the VFS these were integers special-cased
+    // in syscall_dispatch and were never real descriptors at all.
+    vfs_open_into("/dev/CONSOLE", t, 0, 0);
+    vfs_open_into("/dev/CONSOLE", t, 1, 1);
+    vfs_open_into("/dev/CONSOLE", t, 2, 1);
     cpu_default_fpu_state(t->fpu_state);
     t->next = 0;
 

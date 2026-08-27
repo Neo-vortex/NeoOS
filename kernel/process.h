@@ -7,7 +7,11 @@
 
 #define MAX_TASKS 16
 #define KERNEL_STACK_ORDER 2 // 4 frames = 16KiB
-#define MAX_OPEN_FILES 8
+// 16 entries indexed DIRECTLY by fd. Before the VFS, fds 0-2 were
+// special-cased integers in syscall_dispatch and this array started at
+// fd 3; now /dev/CONSOLE is a real vnode opened on 0, 1, and 2 at
+// process creation, so the fd IS the index.
+#define MAX_OPEN_FILES 16
 
 // Mirrors syscall_entry.asm's saved-register block exactly, in
 // increasing-address order (the reverse of push order, since the

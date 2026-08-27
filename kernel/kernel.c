@@ -77,6 +77,7 @@ void kmain(void *multiboot_info) {
 
     vfs_init();
     vfs_mount_fs("hd0", "/",    "fat");
+    vfs_mount_fs(0,     "/dev", "devfs");
     vfs_mount_fs(0,     "/tmp", "ramfs");
     vfs_selftest();
 

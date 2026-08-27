@@ -106,14 +106,10 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             int fd = (int)a1;
             const char *buf = (const char *)(uintptr_t)a2;
             uint64_t len = (uint64_t)a3;
-            if (fd == 1 || fd == 2) {
-                serial_write_string_n(buf, len);
-                return (int64_t)len;
-            }
-            if (fd < 3 || fd >= 3 + MAX_OPEN_FILES) {
+            if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd - 3];
+            struct file_descriptor *f = &current_task()->files[fd];
             if (!f->in_use || !f->writable) {
                 return -EBADF;
             }
@@ -131,13 +127,10 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             int fd = (int)a1;
             char *buf = (char *)(uintptr_t)a2;
             uint64_t len = (uint64_t)a3;
-            if (fd == 0) {
-                return 0; // no keyboard-to-process input path yet
-            }
-            if (fd < 3 || fd >= 3 + MAX_OPEN_FILES) {
+            if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd - 3];
+            struct file_descriptor *f = &current_task()->files[fd];
             if (!f->in_use) {
                 return -EBADF;
             }
@@ -165,8 +158,10 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             int flags = (int)a3;
 
             struct task *task = current_task();
+            // Slots 0-2 are the standard streams, opened at process
+            // creation; ordinary opens start above them.
             int slot = -1;
-            for (int i = 0; i < MAX_OPEN_FILES; i++) {
+            for (int i = 3; i < MAX_OPEN_FILES; i++) {
                 if (!task->files[i].in_use) { slot = i; break; }
             }
             if (slot < 0) { return -EMFILE; }
@@ -203,14 +198,14 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             f->vn = vn;   // the reference vfs_resolve/vnode_get took is now the fd's
             f->writable = (flags & (O_WRONLY | O_RDWR)) != 0;
             f->position = (flags & O_APPEND) ? vn->size : 0;
-            return slot + 3;
+            return slot;
         }
         case SYS_CLOSE: {
             int fd = (int)a1;
-            if (fd < 3 || fd >= 3 + MAX_OPEN_FILES) {
+            if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd - 3];
+            struct file_descriptor *f = &current_task()->files[fd];
             if (!f->in_use) {
                 return -EBADF;
             }
@@ -249,10 +244,10 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             int fd = (int)a1;
             int64_t offset = a2;
             int whence = (int)a3;
-            if (fd < 3 || fd >= 3 + MAX_OPEN_FILES) {
+            if (fd < 0 || fd >= MAX_OPEN_FILES) {
                 return -EBADF;
             }
-            struct file_descriptor *f = &current_task()->files[fd - 3];
+            struct file_descriptor *f = &current_task()->files[fd];
             if (!f->in_use) {
                 return -EBADF;
             }

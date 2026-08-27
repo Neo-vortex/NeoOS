@@ -1,8 +1,10 @@
 #include "vfs.h"
 #include "ramfs.h"
 #include "fatfs.h"
+#include "devfs.h"
 #include "../errno.h"
 #include "../serial.h"
+#include "../process.h"
 
 static struct vfs_mount mounts[MAX_MOUNTS];
 static struct vnode vnodes[MAX_VNODES];
@@ -184,8 +186,10 @@ int vfs_mount_fs(const char *source, const char *target, const char *fstype) {
         m->ops = &ramfs_ops;
     } else if (str_eq(fstype, "fat")) {
         m->ops = &fatfs_ops;
+    } else if (str_eq(fstype, "devfs")) {
+        m->ops = &devfs_ops;
     } else {
-        return -ENODEV; // "devfs" arrives in a later task
+        return -ENODEV;
     }
 
     str_copy(m->path, target, VFS_MAX_PATH);
@@ -333,6 +337,17 @@ struct vnode *vfs_resolve(const char *path, int *out_err) {
 
 struct vnode *vfs_resolve_parent(const char *path, char *out_name, int *out_err) {
     return resolve_walk(path, 1, out_name, out_err);
+}
+
+int vfs_open_into(const char *path, struct task *t, int fd, int writable) {
+    int err = 0;
+    struct vnode *vn = vfs_resolve(path, &err);
+    if (!vn) { return err; }
+    t->files[fd].in_use = 1;
+    t->files[fd].vn = vn;
+    t->files[fd].position = 0;
+    t->files[fd].writable = writable;
+    return 0;
 }
 
 void vfs_selftest(void) {
