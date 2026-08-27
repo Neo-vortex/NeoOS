@@ -76,6 +76,23 @@ alongside the library code that exposes it.
 - `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREAT`, `O_TRUNC`, `O_APPEND`
   flag constants.
 
+## `<dirent.h>`
+
+- `DIR *opendir(const char *path)` — opens a directory for reading.
+  Returns `0` on failure (path missing, not a directory, or more than
+  four directories already open).
+- `struct dirent *readdir(DIR *d)` — returns the next entry, or `0` at
+  end of directory. `d->name` is an 8.3 name and `d->type` is
+  `DT_REG`, `DT_DIR`, or `DT_CHR`. The returned pointer is into the
+  `DIR`'s own buffer and is invalidated by the next `readdir` or
+  `closedir` on that `DIR`.
+- `int closedir(DIR *d)` — closes the directory. Returns 0, or a
+  negative `<errno.h>` code.
+- `int getdents(int fd, struct dirent *buf, int count)` — the raw
+  syscall the three functions above are built on. Fills up to `count`
+  entries from a directory fd, returning how many were written, `0` at
+  end of directory, or `-EBADF`/`-ENOTDIR`.
+
 ## `<errno.h>`
 
 Every `open`/`read`/`write`/`close`/`lseek`/`mkdir`/`unlink` call

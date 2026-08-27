@@ -1,6 +1,7 @@
 #include "unistd.h"
 #include "string.h"
 #include "fcntl.h"
+#include "dirent.h"
 
 #define SYS_EXIT   0
 #define SYS_WRITE  1
@@ -18,6 +19,7 @@
 #define SYS_EXEC   13
 #define SYS_MOUNT  14
 #define SYS_UMOUNT 15
+#define SYS_GETDENTS 16
 
 static inline int64_t syscall0(int64_t num) {
     int64_t ret;
@@ -84,6 +86,10 @@ int spawn(const char *path) {
 
 int fork(void) {
     return (int)syscall0(SYS_FORK);
+}
+
+int getdents(int fd, struct dirent *buf, int count) {
+    return (int)syscall3(SYS_GETDENTS, fd, (int64_t)(uint64_t)buf, count);
 }
 
 int mount(const char *source, const char *target, const char *fstype) {

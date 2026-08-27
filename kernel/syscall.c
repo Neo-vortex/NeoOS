@@ -29,6 +29,7 @@
 #define SYS_EXEC   13
 #define SYS_MOUNT  14
 #define SYS_UMOUNT 15
+#define SYS_GETDENTS 16
 
 // Mirrors lib/include/fcntl.h's O_* values exactly -- the two trees
 // don't share headers, so these must be kept in sync by hand.
@@ -306,6 +307,31 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             int rc = vfs_umount(target);
             fs_lock_release();
             return rc;
+        }
+        case SYS_GETDENTS: {
+            int fd = (int)a1;
+            struct dirent *out = (struct dirent *)(uintptr_t)a2;
+            int count = (int)a3;
+            if (fd < 0 || fd >= MAX_OPEN_FILES || count <= 0) { return -EBADF; }
+
+            struct file_descriptor *f = &current_task()->files[fd];
+            if (!f->in_use) { return -EBADF; }
+            if (f->vn->type != VNODE_DIR) { return -ENOTDIR; }
+
+            // position doubles as the directory cursor for a dir fd,
+            // so repeated calls walk forward exactly like read() does
+            // on a file.
+            fs_lock_acquire();
+            int written = 0;
+            while (written < count) {
+                if (f->vn->mount->ops->readdir(f->vn, f->position, &out[written]) != 0) {
+                    break; // past the last entry
+                }
+                f->position++;
+                written++;
+            }
+            fs_lock_release();
+            return written;
         }
         default:
             serial_write_string("[syscall] unknown syscall number\n");
