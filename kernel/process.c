@@ -11,6 +11,7 @@
 extern void context_switch(uint64_t *old_rsp, uint64_t *new_rsp);
 extern void kernel_thread_entry_trampoline(void);
 extern void kernel_thread_trampoline(void);
+extern void fork_trampoline(void);
 extern uint64_t p4_table[512]; // boot.asm's live PML4
 
 static struct task tasks[MAX_TASKS];
@@ -126,9 +127,45 @@ struct task *current_task(void) {
     return current;
 }
 
+// Restores EFLAGS.IF to whatever it was on entry to schedule(). Split
+// out because schedule() has three exits (no-task, same-task, and the
+// far side of a context switch, possibly milliseconds later in a
+// different task).
+static inline void schedule_restore_if(uint64_t saved_flags) {
+    if (saved_flags & (1ULL << 9)) {
+        __asm__ volatile ("sti");
+    }
+}
+
 void schedule(void) {
+    // schedule() is NOT reentrant, and until this cli it ran with
+    // interrupts enabled. Between `current = next` and the
+    // context_switch() below, `current` already names the incoming
+    // task while execution is still on the OUTGOING task's stack -- so
+    // a timer interrupt landing in that window re-enters schedule()
+    // with prev == the incoming task, and context_switch's
+    // `mov [rdi], rsp` stamps the outgoing task's RSP into the
+    // incoming task's saved_rsp. That task is then resumed on a stack
+    // that isn't its own (observed: pid 6 resumed with an RSP pointing
+    // into pid 5's kernel stack, faulting in syscall_dispatch's
+    // epilogue with a garbage RBP, escalating to a double fault).
+    //
+    // The window was always there, but nothing hit it until fork()
+    // made it easy to have several tasks doing nothing but yield(),
+    // which keeps schedule() executing a large fraction of the time.
+    //
+    // IF is restored rather than unconditionally set because
+    // timer_handler() calls schedule() from an interrupt gate with
+    // IF already 0, and must return to the ISR with it still 0 -- the
+    // iretq there is what re-enables it. `flags` is a local, so it
+    // lives on this task's own kernel stack and is still correct
+    // whenever this task is eventually resumed.
+    uint64_t flags;
+    __asm__ volatile ("pushfq; pop %0; cli" : "=r"(flags) :: "memory");
+
     struct task *next = dequeue_ready();
     if (!next) {
+        schedule_restore_if(flags);
         return; // nothing else ready; keep running whatever's current
     }
 
@@ -155,6 +192,7 @@ void schedule(void) {
     __asm__ volatile ("mov %0, %%cr3" :: "r"(next_cr3) : "memory");
 
     if (prev == next) {
+        schedule_restore_if(flags);
         return;
     }
 
@@ -164,6 +202,10 @@ void schedule(void) {
     }
     fpu_restore(next->fpu_state);
     context_switch(prev ? &prev->saved_rsp : &discarded_rsp, &next->saved_rsp);
+
+    // Reached only when THIS task is scheduled back in, which may be
+    // much later; `flags` is the IF state from its own entry above.
+    schedule_restore_if(flags);
 }
 
 struct task *spawn(const char *path) {
@@ -243,6 +285,146 @@ struct task *spawn(const char *path) {
     return t;
 }
 
+// Walks every present user-mode page in `parent_pml4`, clears its
+// PAGE_WRITABLE bit (marking it copy-on-write), shares the frame via
+// pmm_frame_share(), and maps the same frame at the same virtual
+// address into `child_pml4`, also read-only. Returns 0 and leaves
+// child_pml4 in a to-be-discarded state on out-of-memory (caller frees
+// it via free_address_space); parent_pml4's PTEs already flipped
+// read-only before the failure stay that way -- harmless, since the
+// next write to any of them just takes the (correctly handled,
+// refcount-1, no-copy-needed) COW fault path.
+static int fork_duplicate_user_pages(uint64_t *parent_pml4, uint64_t *child_pml4) {
+    for (unsigned i4 = 0; i4 < 512; i4++) {
+        if (i4 == 0 || i4 == 256 || i4 == 511) {
+            continue; // shared kernel entries, already copied by the caller
+        }
+        if (!(parent_pml4[i4] & PAGE_PRESENT)) {
+            continue;
+        }
+        uint64_t *parent_pdpt = (uint64_t *)phys_to_virt(parent_pml4[i4] & PAGE_ADDR_MASK);
+
+        for (unsigned i3 = 0; i3 < 512; i3++) {
+            if (!(parent_pdpt[i3] & PAGE_PRESENT)) {
+                continue;
+            }
+            uint64_t *parent_pd = (uint64_t *)phys_to_virt(parent_pdpt[i3] & PAGE_ADDR_MASK);
+
+            for (unsigned i2 = 0; i2 < 512; i2++) {
+                if (!(parent_pd[i2] & PAGE_PRESENT)) {
+                    continue;
+                }
+                uint64_t *parent_pt = (uint64_t *)phys_to_virt(parent_pd[i2] & PAGE_ADDR_MASK);
+
+                for (unsigned i1 = 0; i1 < 512; i1++) {
+                    if (!(parent_pt[i1] & PAGE_PRESENT)) {
+                        continue;
+                    }
+                    uint64_t virt = ((uint64_t)i4 << 39) | ((uint64_t)i3 << 30) |
+                                     ((uint64_t)i2 << 21) | ((uint64_t)i1 << 12);
+
+                    parent_pt[i1] &= ~PAGE_WRITABLE;
+                    // The parent's TLB may still cache a stale writable
+                    // translation for this page from before the PTE
+                    // change -- without this invlpg, a write from the
+                    // parent right after fork() could silently succeed
+                    // via the stale entry instead of taking the COW
+                    // fault, corrupting the frame the child now shares.
+                    __asm__ volatile ("invlpg (%0)" :: "r"(virt) : "memory");
+
+                    uint64_t phys = parent_pt[i1] & PAGE_ADDR_MASK;
+                    pmm_frame_share(phys);
+
+                    // Low 12 bits (permission/type flags) plus bit 63
+                    // (PAGE_NO_EXECUTE) -- NOT just `& 0xFFF`, which
+                    // would silently drop NX and make a non-executable
+                    // page executable in the child.
+                    uint64_t flags = parent_pt[i1] & (0xFFFULL | PAGE_NO_EXECUTE) & ~PAGE_PRESENT;
+                    if (paging_map_into(child_pml4, virt, phys, flags) != 0) {
+                        return 0;
+                    }
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+// Duplicates the calling task into a new child, sharing physical
+// frames read-only between the two (see paging_handle_cow_fault for
+// the lazy-copy side). Returns the child task on success (the parent
+// syscall path returns its pid), or 0 on failure -- leaving the
+// parent completely unaffected (nothing is left partially modified).
+struct task *fork_task(struct syscall_frame *frame) {
+    struct task *parent = current;
+
+    struct task *child = alloc_task_slot();
+    if (!child) {
+        serial_write_string("[process] fork FAILED: no free task slot\n");
+        return 0;
+    }
+
+    uint64_t child_pml4_phys = paging_alloc_pml4();
+    uint64_t *child_pml4 = (uint64_t *)phys_to_virt(child_pml4_phys);
+    uint64_t *parent_pml4 = (uint64_t *)phys_to_virt(parent->pml4_phys);
+    child_pml4[0] = parent_pml4[0];
+    child_pml4[256] = parent_pml4[256];
+    child_pml4[511] = parent_pml4[511];
+
+    if (!fork_duplicate_user_pages(parent_pml4, child_pml4)) {
+        serial_write_string("[process] fork FAILED: out of memory duplicating page tables\n");
+        free_address_space(child_pml4_phys);
+        child->state = TASK_UNUSED;
+        return 0;
+    }
+
+    uint64_t kstack_phys = pmm_alloc(KERNEL_STACK_ORDER);
+    if (!kstack_phys) {
+        serial_write_string("[process] fork FAILED: out of memory for kernel stack\n");
+        free_address_space(child_pml4_phys);
+        child->state = TASK_UNUSED;
+        return 0;
+    }
+    zero_frames(kstack_phys, KERNEL_STACK_ORDER);
+    uint64_t kstack_top = (uint64_t)(uintptr_t)phys_to_virt(kstack_phys) + (PMM_FRAME_SIZE << KERNEL_STACK_ORDER);
+
+    // Memory layout, lowest address first (i.e. pop order):
+    //   r15, r14, r13, r12, rbx, rbp, fork_trampoline, rcx, r11, user_rsp
+    // The first six are consumed by context_switch's own epilogue, the
+    // seventh by its `ret`, and only the last three by fork_trampoline.
+    uint64_t *sp = (uint64_t *)kstack_top;
+    *(--sp) = frame->user_rsp;
+    *(--sp) = frame->r11;   // user RFLAGS
+    *(--sp) = frame->rcx;   // user RIP
+    *(--sp) = (uint64_t)fork_trampoline; // context_switch's `ret` lands here
+    *(--sp) = frame->rbp;
+    *(--sp) = frame->rbx;
+    *(--sp) = frame->r12;
+    *(--sp) = frame->r13;
+    *(--sp) = frame->r14;
+    *(--sp) = frame->r15;
+
+    child->pid = next_pid++;
+    child->state = TASK_READY;
+    child->saved_rsp = (uint64_t)sp;
+    child->kernel_stack_top = kstack_top;
+    child->kernel_stack_phys = kstack_phys;
+    child->pml4_phys = child_pml4_phys;
+    child->parent_pid = parent->pid;
+    child->exit_code = 0;
+    child->waiting_for_pid = 0;
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        child->files[i] = parent->files[i]; // copied by value -- see docs/stdlib.md
+    }
+    for (int i = 0; i < FPU_STATE_SIZE; i++) {
+        child->fpu_state[i] = parent->fpu_state[i];
+    }
+    child->next = 0;
+
+    enqueue_ready(child);
+    return child;
+}
+
 void task_exit(int code) {
     current->state = TASK_ZOMBIE;
     current->exit_code = code;
@@ -258,11 +440,10 @@ void task_exit(int code) {
     // preempt this task -- and since its state is already ZOMBIE (not
     // READY), schedule() would never re-enqueue it, permanently
     // abandoning task_exit() before it reaches its own schedule() call
-    // below. sti before that call is required, not optional: EFLAGS.IF
-    // is not part of a task's saved context (context_switch.asm never
-    // touches it), so every other schedule() caller in this kernel
-    // relies on IF already being 1 -- leaving it cleared here would
-    // silently disable preemption for whichever task runs next.
+    // below. The sti before that call pairs with this cli so schedule()
+    // is entered in the same IF state as every other call site; it no
+    // longer matters to the task being switched to, which restores its
+    // own saved IF (see schedule_restore_if).
     __asm__ volatile ("cli");
 
     if (current->pml4_phys) {
