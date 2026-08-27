@@ -224,7 +224,7 @@ git commit -m "Add ATA drive selection and a second FAT32 disk image"
 
 This task lands the whole abstraction plus the smallest driver that can exercise it. ramfs is first rather than FAT deliberately: it has no disk I/O, so a failure here is unambiguously a VFS-core bug. `mkdir`, `unlink`, and `readdir` are deferred to Task 3 to keep this task's review surface to the cache and the resolver.
 
-- [ ] **Step 1: Add `kernel/fs/vfs.h`**
+- [x] **Step 1: Add `kernel/fs/vfs.h`**
 
 ```c
 #ifndef NEOOS_VFS_H
@@ -324,7 +324,7 @@ struct vnode *vfs_resolve_parent(const char *path, char *out_name, int *out_err)
 #endif
 ```
 
-- [ ] **Step 2: Add `kernel/fs/vfs.c` — pool, cache, and mount table**
+- [x] **Step 2: Add `kernel/fs/vfs.c` — pool, cache, and mount table**
 
 ```c
 #include "vfs.h"
@@ -451,7 +451,7 @@ void vnode_put(struct vnode *vn) {
 }
 ```
 
-- [ ] **Step 3: Add mount, umount, and longest-prefix dispatch to `kernel/fs/vfs.c`**
+- [x] **Step 3: Add mount, umount, and longest-prefix dispatch to `kernel/fs/vfs.c`**
 
 Append:
 
@@ -579,7 +579,7 @@ int vfs_umount(const char *target) {
 }
 ```
 
-- [ ] **Step 4: Add path resolution to `kernel/fs/vfs.c`**
+- [x] **Step 4: Add path resolution to `kernel/fs/vfs.c`**
 
 Append:
 
@@ -674,7 +674,7 @@ struct vnode *vfs_resolve_parent(const char *path, char *out_name, int *out_err)
 }
 ```
 
-- [ ] **Step 5: Add `kernel/fs/ramfs.h`**
+- [x] **Step 5: Add `kernel/fs/ramfs.h`**
 
 ```c
 #ifndef NEOOS_RAMFS_H
@@ -690,7 +690,7 @@ extern const struct vfs_ops ramfs_ops;
 #endif
 ```
 
-- [ ] **Step 6: Add `kernel/fs/ramfs.c` — mount, lookup, create, read, write**
+- [x] **Step 6: Add `kernel/fs/ramfs.c` — mount, lookup, create, read, write**
 
 `mkdir`, `unlink`, and `readdir` are stubs returning `-EPERM` here; Task 3 implements them.
 
@@ -893,7 +893,7 @@ const struct vfs_ops ramfs_ops = {
 };
 ```
 
-- [ ] **Step 7: Add `vfs_selftest` to `kernel/fs/vfs.c`**
+- [x] **Step 7: Add `vfs_selftest` to `kernel/fs/vfs.c`**
 
 Append. This is the task's test: it proves mount, create, write, read-back, the vnode cache's aliasing, and `umount`'s busy check.
 
@@ -975,7 +975,7 @@ void vfs_selftest(void) {
 }
 ```
 
-- [ ] **Step 8: Wire the new directory into the Makefile**
+- [x] **Step 8: Wire the new directory into the Makefile**
 
 `C_SOURCES` already globs `kernel/*.c` and `kernel/mm/*.c`. Add the new directory:
 
@@ -985,7 +985,7 @@ C_SOURCES := $(wildcard kernel/*.c) $(wildcard kernel/mm/*.c) $(wildcard kernel/
 
 The existing pattern rule `$(BUILD_DIR)/%.o: kernel/%.c` already does `mkdir -p $(dir $@)`, so `build/fs/` is created automatically.
 
-- [ ] **Step 9: Call it from `kmain`**
+- [x] **Step 9: Call it from `kmain`**
 
 In `kernel/kernel.c`, add `#include "fs/vfs.h"` and, after `fat16_write_selftest();`:
 
@@ -995,7 +995,7 @@ In `kernel/kernel.c`, add `#include "fs/vfs.h"` and, after `fat16_write_selftest
     vfs_selftest();
 ```
 
-- [ ] **Step 10: Build and verify**
+- [x] **Step 10: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -1009,7 +1009,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: `[vfs] initialized`, `[vfs] mounted ramfs at /tmp`, `[vfs] selftest passed`. `FAILED|exception` count 0, and all milestone 5-9 programs unchanged.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add kernel/fs/vfs.h kernel/fs/vfs.c kernel/fs/ramfs.h kernel/fs/ramfs.c kernel/kernel.c Makefile
@@ -1027,7 +1027,7 @@ git commit -m "Add VFS core: vnode cache, mount table, path resolution, and ramf
 - Produces: working `mkdir`/`unlink`/`readdir` in `ramfs_ops`. `readdir`'s contract — return 0 and fill `*out` for a valid `index`, return `-ENOENT` once `index` is past the last entry — is the contract Task 10's `getdents` relies on and every other driver must match.
 - Consumes: Task 2's `ramfs_node` pool and `struct dirent`.
 
-- [ ] **Step 1: Replace the three stubs in `kernel/fs/ramfs.c`**
+- [x] **Step 1: Replace the three stubs in `kernel/fs/ramfs.c`**
 
 Delete `ramfs_mkdir_stub`, `ramfs_unlink_stub`, and `ramfs_readdir_stub`, and add:
 
@@ -1087,7 +1087,7 @@ static int ramfs_readdir(struct vnode *dir, uint32_t index, struct dirent *out) 
 
 Update the ops table's three entries to `.mkdir = ramfs_mkdir`, `.unlink = ramfs_unlink`, `.readdir = ramfs_readdir`.
 
-- [ ] **Step 2: Extend `vfs_selftest` to cover them**
+- [x] **Step 2: Extend `vfs_selftest` to cover them**
 
 In `kernel/fs/vfs.c`, insert before the final `serial_write_string("[vfs] selftest passed\n");` (and after the two `vnode_put` calls, so nothing is held):
 
@@ -1129,7 +1129,7 @@ In `kernel/fs/vfs.c`, insert before the final `serial_write_string("[vfs] selfte
     vnode_put(root);
 ```
 
-- [ ] **Step 3: Build and verify**
+- [x] **Step 3: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -1143,7 +1143,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: `[vfs] selftest passed` still prints, now having exercised mkdir, readdir, and unlink. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add kernel/fs/ramfs.c kernel/fs/vfs.c
@@ -1163,7 +1163,7 @@ git commit -m "Complete ramfs with mkdir, unlink, and readdir"
 
 This isolates the single largest mechanical change in the milestone — replacing eight file-scope globals across roughly twenty functions in a 927-line file — behind a guarantee of zero semantic change. Landing it separately means that if the next task regresses, the refactor is already known-good.
 
-- [ ] **Step 1: Define the volume struct and a single static instance**
+- [x] **Step 1: Define the volume struct and a single static instance**
 
 In `kernel/fat16.c`, replace these eight globals:
 
@@ -1204,7 +1204,7 @@ struct fat_volume {
 static struct fat_volume legacy_volume;
 ```
 
-- [ ] **Step 2: Thread the volume through every internal helper**
+- [x] **Step 2: Thread the volume through every internal helper**
 
 Give each of these a leading `struct fat_volume *v` parameter and replace every bare global reference inside with `v->field` (e.g. `data_start_lba` becomes `v->data_start_lba`, `sectors_per_fat_g` becomes `v->sectors_per_fat`):
 
@@ -1233,7 +1233,7 @@ grep -n "bytes_per_sector\|sectors_per_cluster\|fat_start_lba\|root_dir_start_lb
   | grep -v "v->" | grep -v "struct fat_volume" | grep -v "bpb->" | grep -v "legacy_volume"
 ```
 
-- [ ] **Step 3: Point the public API at `legacy_volume`**
+- [x] **Step 3: Point the public API at `legacy_volume`**
 
 The nine public functions keep their exact signatures and each passes `&legacy_volume` down. For example:
 
@@ -1276,7 +1276,7 @@ int fat16_mount(void) {
 }
 ```
 
-- [ ] **Step 4: Build and verify no behavior changed**
+- [x] **Step 4: Build and verify no behavior changed**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -1290,7 +1290,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: `[fat16] mounted:` reports the identical geometry values as before the refactor, `[fat16] selftest passed` and `[fat16] write selftest passed` both appear, `fileio` behaves exactly as before. Zero `FAILED`, zero exceptions. This task changes nothing observable — any diff in the log is a bug.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kernel/fat16.c
@@ -1312,7 +1312,7 @@ git commit -m "Move FAT16 geometry into a per-volume struct"
 
 The legacy `fat16_*` API stays in place and `syscall.c` still uses it; both paths coexist for exactly one task so a failure here is attributable to the new driver alone. Task 6 removes the old path.
 
-- [ ] **Step 1: Move the file and update includes**
+- [x] **Step 1: Move the file and update includes**
 
 ```bash
 git mv kernel/fat16.c kernel/fs/fatfs.c
@@ -1325,7 +1325,7 @@ Every other file that included `"fat16.h"` (`kernel/kernel.c`, `kernel/syscall.c
 
 Rename the include guard in `fatfs.h` from `NEOOS_FAT16_H` to `NEOOS_FATFS_H`.
 
-- [ ] **Step 2: Declare the driver in `kernel/fs/fatfs.h`**
+- [x] **Step 2: Declare the driver in `kernel/fs/fatfs.h`**
 
 Add, above the existing legacy declarations:
 
@@ -1343,7 +1343,7 @@ Add, above the existing legacy declarations:
 extern const struct vfs_ops fatfs_ops;
 ```
 
-- [ ] **Step 3: Add the per-vnode private struct and the ops in `kernel/fs/fatfs.c`**
+- [x] **Step 3: Add the per-vnode private struct and the ops in `kernel/fs/fatfs.c`**
 
 Append to the file:
 
@@ -1475,7 +1475,7 @@ static int fatfs_sync_inode(struct vnode *vn) {
 
 Add `int dirty_cluster;` to `struct fatfs_inode` (set by `fatfs_write` below when the first cluster changes), initialised to 0 in `inode_alloc`.
 
-- [ ] **Step 4: Factor BPB parsing into a reusable helper**
+- [x] **Step 4: Factor BPB parsing into a reusable helper**
 
 `fat16_mount` currently parses the boot sector inline. Extract it so the driver's mount path can reuse it. In `kernel/fs/fatfs.c`, add above `fat16_mount`:
 
@@ -1517,7 +1517,7 @@ int fat16_mount(void) {
 }
 ```
 
-- [ ] **Step 5: Implement lookup, read, write, create, mkdir, unlink, truncate, readdir**
+- [x] **Step 5: Implement lookup, read, write, create, mkdir, unlink, truncate, readdir**
 
 Append to `kernel/fs/fatfs.c`. These wrap the existing internal helpers, which already do the real work:
 
@@ -1662,7 +1662,7 @@ const struct vfs_ops fatfs_ops = {
 };
 ```
 
-- [ ] **Step 6: Add the three helpers the ops above call**
+- [x] **Step 6: Add the three helpers the ops above call**
 
 Two of the existing public functions need volume-taking twins, and two helpers are genuinely new. Add to `kernel/fs/fatfs.c`:
 
@@ -1750,7 +1750,7 @@ static void from_fat_name(const uint8_t *raw, char *out) {
 
 `EIO_SUBSTITUTE` is not a real code — replace both uses with `-ENOSPC`, which is what the existing FAT code already returns for a failed device write, and delete this note.
 
-- [ ] **Step 7: Register `"fat"` in `vfs_mount_fs`**
+- [x] **Step 7: Register `"fat"` in `vfs_mount_fs`**
 
 In `kernel/fs/vfs.c`, add `#include "fatfs.h"` and extend the driver selection:
 
@@ -1764,7 +1764,7 @@ In `kernel/fs/vfs.c`, add `#include "fatfs.h"` and extend the driver selection:
     }
 ```
 
-- [ ] **Step 8: Mount `/` at boot and read a known file through the VFS**
+- [x] **Step 8: Mount `/` at boot and read a known file through the VFS**
 
 In `kernel/kernel.c`, change the VFS block to:
 
@@ -1804,7 +1804,7 @@ Add to the end of `vfs_selftest` in `kernel/fs/vfs.c`, before the final pass lin
     vnode_put(nested);
 ```
 
-- [ ] **Step 9: Build and verify**
+- [x] **Step 9: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -1818,7 +1818,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: `[vfs] mounted fat at /`, `[vfs] mounted ramfs at /tmp`, `[vfs] selftest passed`. The legacy FAT16 selftests still pass — both paths are live. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add kernel/fs/fatfs.c kernel/fs/fatfs.h kernel/fs/vfs.c kernel/kernel.c kernel/syscall.c kernel/process.c
@@ -1838,7 +1838,7 @@ git commit -m "Add FAT as a VFS driver and mount it at /"
 
 This is the task that deletes the legacy `fat16_*` API and closes the fd leak in `task_exit`. fds stay 3-based here; Task 7 renumbers them.
 
-- [ ] **Step 1: Change `struct file_descriptor` in `kernel/process.h`**
+- [x] **Step 1: Change `struct file_descriptor` in `kernel/process.h`**
 
 Replace it with:
 
@@ -1853,7 +1853,7 @@ struct file_descriptor {
 
 Add `#include "fs/vfs.h"` near the top of `kernel/process.h`.
 
-- [ ] **Step 2: Rewrite `SYS_OPEN` in `kernel/syscall.c`**
+- [x] **Step 2: Rewrite `SYS_OPEN` in `kernel/syscall.c`**
 
 ```c
         case SYS_OPEN: {
@@ -1899,7 +1899,7 @@ Add `#include "fs/vfs.h"` near the top of `kernel/process.h`.
         }
 ```
 
-- [ ] **Step 3: Rewrite `SYS_READ`, `SYS_WRITE`, `SYS_CLOSE`, and `SYS_LSEEK`**
+- [x] **Step 3: Rewrite `SYS_READ`, `SYS_WRITE`, `SYS_CLOSE`, and `SYS_LSEEK`**
 
 The file branches of read and write become driver-agnostic:
 
@@ -1934,7 +1934,7 @@ The file branches of read and write become driver-agnostic:
 
 `SYS_LSEEK`'s `SEEK_END` reads `f->vn->size` instead of `f->size`; everything else is unchanged.
 
-- [ ] **Step 4: Rewrite `SYS_MKDIR` and `SYS_UNLINK`**
+- [x] **Step 4: Rewrite `SYS_MKDIR` and `SYS_UNLINK`**
 
 ```c
         case SYS_MKDIR: {
@@ -1963,7 +1963,7 @@ The file branches of read and write become driver-agnostic:
 
 Add `#include "fs/vfs.h"` to `kernel/syscall.c` and drop `#include "fs/fatfs.h"` once nothing there references it.
 
-- [ ] **Step 5: Make `fork()` take a reference on every inherited fd**
+- [x] **Step 5: Make `fork()` take a reference on every inherited fd**
 
 In `kernel/process.c`'s `fork_task`, the fd-copy loop currently copies by value only. Replace it with:
 
@@ -1979,7 +1979,7 @@ In `kernel/process.c`'s `fork_task`, the fd-copy loop currently copies by value 
     }
 ```
 
-- [ ] **Step 6: Make `task_exit()` release every open fd**
+- [x] **Step 6: Make `task_exit()` release every open fd**
 
 In `kernel/process.c`'s `task_exit`, inside the existing `cli` critical section and before `free_address_space`:
 
@@ -2000,7 +2000,7 @@ In `kernel/process.c`'s `task_exit`, inside the existing `cli` critical section 
 
 Add `#include "fs/vfs.h"` to `kernel/process.c` if not already present via `process.h`.
 
-- [ ] **Step 7: Delete the legacy FAT API**
+- [x] **Step 7: Delete the legacy FAT API**
 
 From `kernel/fs/fatfs.h`, remove the declarations of `fat16_find`, `fat16_read_file`, `fat16_read_at`, `fat16_write_file`, `fat16_truncate`, `fat16_create_file`, `fat16_mkdir`, `fat16_delete_entry`, and `fat16_update_entry_size`. Keep `fat16_mount`, `fat16_selftest`, and `fat16_write_selftest` — `kmain` still calls them and they still exercise the driver's internals directly.
 
@@ -2031,7 +2031,7 @@ From `kernel/fs/fatfs.c`, delete each corresponding one-line legacy wrapper adde
 
 The rest of the function (PML4 setup, `elf_load`, user stack) is unchanged.
 
-- [ ] **Step 8: Build and verify**
+- [x] **Step 8: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -2045,7 +2045,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: `fileio` reproduces its exact milestone-7 output (open, write, read back, lseek, mkdir, unlink), every program still spawns — proving ELF loading now goes through the VFS — and all milestone 5-9 behavior is unchanged. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add kernel/syscall.c kernel/process.c kernel/process.h kernel/fs/fatfs.c kernel/fs/fatfs.h
@@ -2064,7 +2064,7 @@ git commit -m "Rewrite the syscall layer against the VFS and close the fd leak a
 - Produces: `extern const struct vfs_ops devfs_ops;`, `int vfs_open_into(const char *path, struct task *t, int fd, int writable)` for opening console fds at process creation.
 - Consumes: Task 6's vnode-backed `struct file_descriptor`.
 
-- [ ] **Step 1: Add `kernel/fs/devfs.h`**
+- [x] **Step 1: Add `kernel/fs/devfs.h`**
 
 ```c
 #ifndef NEOOS_DEVFS_H
@@ -2077,7 +2077,7 @@ extern const struct vfs_ops devfs_ops;
 #endif
 ```
 
-- [ ] **Step 2: Add `kernel/fs/devfs.c`**
+- [x] **Step 2: Add `kernel/fs/devfs.c`**
 
 ```c
 #include "devfs.h"
@@ -2220,7 +2220,7 @@ grep -n "void .*char\|serial_write_char\|vga_put" kernel/serial.h kernel/vga.h
 
 Use whatever they are actually called; if only string-writing functions exist, build a 2-byte NUL-terminated stack buffer per character rather than adding new functions to those modules.
 
-- [ ] **Step 3: Register `"devfs"` in `vfs_mount_fs`**
+- [x] **Step 3: Register `"devfs"` in `vfs_mount_fs`**
 
 In `kernel/fs/vfs.c`, add `#include "devfs.h"` and the third branch:
 
@@ -2230,7 +2230,7 @@ In `kernel/fs/vfs.c`, add `#include "devfs.h"` and the third branch:
     } else {
 ```
 
-- [ ] **Step 4: Renumber file descriptors**
+- [x] **Step 4: Renumber file descriptors**
 
 In `kernel/process.h`, raise the table size and document why:
 
@@ -2269,7 +2269,7 @@ Confirm nothing was missed:
 grep -n "fd - 3\|fd < 3\|slot + 3" kernel/syscall.c   # must print nothing
 ```
 
-- [ ] **Step 5: Open `/dev/console` on fds 0-2 at process creation**
+- [x] **Step 5: Open `/dev/console` on fds 0-2 at process creation**
 
 Add to `kernel/fs/vfs.c` and declare in `vfs.h`:
 
@@ -2308,7 +2308,7 @@ In `kernel/process.c`'s `spawn`, replace the existing fd-clearing loop:
 
 Apply the same `t->files[i].vn = 0;` addition to `task_create_kernel_thread`'s fd loop, but do **not** open console fds there — kernel threads never issue syscalls.
 
-- [ ] **Step 6: Mount `/dev` at boot**
+- [x] **Step 6: Mount `/dev` at boot**
 
 In `kernel/kernel.c`:
 
@@ -2322,7 +2322,7 @@ In `kernel/kernel.c`:
 
 `/dev` must be mounted before the first `spawn()`, which is already true — `kmain` mounts everything before creating any task.
 
-- [ ] **Step 7: Build and verify**
+- [x] **Step 7: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -2336,7 +2336,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: three mount lines including `devfs at /dev`. Every existing program's `printf` output still appears — it now travels through `/dev/CONSOLE` rather than the deleted `fd < 3` branch, which is the whole proof of this task. `fileio`'s fd numbers shift from 3 to 3 (unchanged, since the search starts at 3), so its output is byte-identical. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add kernel/fs/devfs.h kernel/fs/devfs.c kernel/fs/vfs.c kernel/fs/vfs.h kernel/syscall.c kernel/process.c kernel/process.h kernel/kernel.c
@@ -2354,7 +2354,7 @@ git commit -m "Add devfs and route standard streams through /dev/CONSOLE"
 - Produces: variant detection at mount; `fat_volume.variant`. No signature changes — every existing helper keeps its shape and branches internally.
 - Consumes: Task 5's driver, Task 1's drive 1.
 
-- [ ] **Step 1: Extend the BPB struct with the FAT32 fields**
+- [x] **Step 1: Extend the BPB struct with the FAT32 fields**
 
 In `kernel/fs/fatfs.c`, `struct fat16_bpb` currently stops at `total_sectors_32` (offset 32). Append the FAT32 extended fields:
 
@@ -2373,7 +2373,7 @@ In `kernel/fs/fatfs.c`, `struct fat16_bpb` currently stops at `total_sectors_32`
 
 Keep `__attribute__((packed))`.
 
-- [ ] **Step 2: Add the variant field and detect it in `fat_read_bpb`**
+- [x] **Step 2: Add the variant field and detect it in `fat_read_bpb`**
 
 Add to `struct fat_volume`:
 
@@ -2438,7 +2438,7 @@ static int fat_read_bpb(struct fat_volume *v) {
 }
 ```
 
-- [ ] **Step 3: Make FAT entry access variant-aware**
+- [x] **Step 3: Make FAT entry access variant-aware**
 
 `fat16_next_cluster` and `fat16_set_next_cluster` currently assume 16-bit entries. The cluster number type also has to widen — change every `uint16_t cluster` in the driver's internals and in `struct fatfs_inode.first_cluster` to `uint32_t`, since FAT32 cluster numbers exceed 16 bits.
 
@@ -2516,7 +2516,7 @@ which must become
 
 Left as-is, FAT32 directory listings would run off the end of the chain instead of terminating, because a FAT32 chain never reaches `0xFFF8`.
 
-- [ ] **Step 4: Make the root directory variant-aware**
+- [x] **Step 4: Make the root directory variant-aware**
 
 Under FAT32 the root is an ordinary cluster chain, so the `in_root` special case collapses into the normal path. In `fatfs_read_inode`, the root's first cluster becomes the volume's `root_cluster`:
 
@@ -2535,7 +2535,7 @@ Everywhere a call currently passes `dir->inode_id == FATFS_ROOT_INODE` as an `in
 
 so FAT32's root takes the cluster-chain path with `first_cluster = root_cluster`. `find_in_root`, `create_entry_in_directory`, and `fat_dir_nth` need no internal change — they already branch on the flag they are handed.
 
-- [ ] **Step 5: Mount the FAT32 volume at `/mnt`**
+- [x] **Step 5: Mount the FAT32 volume at `/mnt`**
 
 In `kernel/kernel.c`:
 
@@ -2576,7 +2576,7 @@ Add to `vfs_selftest`, before the final pass line:
     vnode_put(f32n);
 ```
 
-- [ ] **Step 6: Build and verify**
+- [x] **Step 6: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -2590,7 +2590,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: two `[fatfs] mounted` lines — `drive=0x0 variant=FAT16` and `drive=0x1 variant=FAT32` — four `[vfs] mounted` lines, and `[vfs] selftest passed`. Zero `FAILED`, zero exceptions. FAT16 behavior on drive 0 must be completely unchanged.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add kernel/fs/fatfs.c kernel/fs/fatfs.h kernel/kernel.c
@@ -2608,7 +2608,7 @@ git commit -m "Add FAT32 support with variant auto-detection and mount it at /mn
 - Produces: `SYS_MOUNT` (14), `SYS_UMOUNT` (15); `int mount(const char *source, const char *target, const char *fstype)`, `int umount(const char *target)`; `copy_user_string`.
 - Consumes: Task 2's `vfs_mount_fs`/`vfs_umount`.
 
-- [ ] **Step 1: Add `copy_user_string` to `kernel/syscall.c`**
+- [x] **Step 1: Add `copy_user_string` to `kernel/syscall.c`**
 
 `mount` takes three strings but `syscall_dispatch` has only four argument slots, and the existing convention spends two slots per string as a `(pointer, length)` pair. Three pairs need six. So `mount` alone passes NUL-terminated pointers:
 
@@ -2627,7 +2627,7 @@ static void copy_user_string(int64_t user_ptr, char *out, uint64_t out_size) {
 }
 ```
 
-- [ ] **Step 2: Add the two dispatch cases**
+- [x] **Step 2: Add the two dispatch cases**
 
 ```c
 #define SYS_MOUNT  14
@@ -2651,7 +2651,7 @@ static void copy_user_string(int64_t user_ptr, char *out, uint64_t out_size) {
 
 `umount` takes one string and fits the existing `(pointer, length)` convention, so it uses `copy_user_path` unchanged.
 
-- [ ] **Step 3: Add the library wrappers**
+- [x] **Step 3: Add the library wrappers**
 
 In `lib/syscall.c`:
 
@@ -2675,7 +2675,7 @@ int umount(const char *target) {
 }
 ```
 
-- [ ] **Step 4: Declare them in `lib/include/unistd.h`**
+- [x] **Step 4: Declare them in `lib/include/unistd.h`**
 
 ```c
 // Mounts the filesystem `fstype` ("fat", "ramfs", or "devfs") at
@@ -2690,7 +2690,7 @@ int mount(const char *source, const char *target, const char *fstype);
 int umount(const char *target);
 ```
 
-- [ ] **Step 5: Add the `docs/stdlib.md` entries**
+- [x] **Step 5: Add the `docs/stdlib.md` entries**
 
 In the `<unistd.h>` section, after the `exec` entry:
 
@@ -2706,7 +2706,7 @@ In the `<unistd.h>` section, after the `exec` entry:
   completely intact on `-EBUSY`.
 ```
 
-- [ ] **Step 6: Verify with a temporary userland check**
+- [x] **Step 6: Verify with a temporary userland check**
 
 Create `userland/mounttest.c`:
 
@@ -2747,7 +2747,7 @@ $(USERLAND_BUILD)/MOUNTTST.ELF: $(USERLAND_DIR)/mounttest.c $(USERLAND_DIR)/user
 
 Add `$(USERLAND_BUILD)/MOUNTTST.ELF` to the `$(DISK_IMG)` prerequisites and an `mcopy` line for it. Temporarily replace `kmain`'s four `spawn(...)` calls with `spawn("/BIN/MOUNTTST.ELF");`.
 
-- [ ] **Step 7: Build and verify**
+- [x] **Step 7: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -2761,13 +2761,13 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected, in order: `umount while open returned -16` (`-EBUSY`), `umount after close returned 0`, `open after umount returned` a negative value, `remount returned 0`. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 8: Restore the four-process boot and re-verify**
+- [x] **Step 8: Restore the four-process boot and re-verify**
 
 Restore `kmain`'s original `spawn("/BIN/PARENT.ELF")` block plus the two `LOOPER` and one `YIELDER` calls. Confirm `git diff --stat kernel/kernel.c` shows only the mount lines added in earlier tasks. Rebuild, boot, and confirm zero `FAILED` and zero exceptions.
 
 Keep `mounttest.c` and its Makefile rule — Task 12 reuses it.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add kernel/syscall.c lib/syscall.c lib/include/unistd.h docs/stdlib.md userland/mounttest.c Makefile kernel/kernel.c
@@ -2786,7 +2786,7 @@ git commit -m "Add mount and umount syscalls with library wrappers"
 - Produces: `SYS_GETDENTS` (16); `int getdents(int fd, struct dirent *buf, int count)`; `DIR`, `opendir`, `readdir`, `closedir`.
 - Consumes: the `readdir` op every driver implements (Tasks 3, 5, 7, 8) and its contract — 0 with `*out` filled for a valid index, `-ENOENT` once past the last entry.
 
-- [ ] **Step 1: Add the `SYS_GETDENTS` dispatch case**
+- [x] **Step 1: Add the `SYS_GETDENTS` dispatch case**
 
 In `kernel/syscall.c`:
 
@@ -2822,7 +2822,7 @@ In `kernel/syscall.c`:
 
 `SYS_OPEN` must stop rejecting directories opened read-only — check that its `O_WRONLY|O_RDWR` guard (Task 6, Step 2) already permits `O_RDONLY` on a `VNODE_DIR`. It does; no change needed.
 
-- [ ] **Step 2: Add the raw wrapper in `lib/syscall.c`**
+- [x] **Step 2: Add the raw wrapper in `lib/syscall.c`**
 
 ```c
 #define SYS_GETDENTS 16
@@ -2836,7 +2836,7 @@ int getdents(int fd, struct dirent *buf, int count) {
 
 Add `#include "dirent.h"` at the top of `lib/syscall.c`.
 
-- [ ] **Step 3: Add `lib/include/dirent.h`**
+- [x] **Step 3: Add `lib/include/dirent.h`**
 
 ```c
 #ifndef NEOOS_DIRENT_H
@@ -2886,7 +2886,7 @@ int closedir(DIR *d);
 #endif
 ```
 
-- [ ] **Step 4: Add `lib/dirent.c`**
+- [x] **Step 4: Add `lib/dirent.c`**
 
 ```c
 #include "dirent.h"
@@ -2944,7 +2944,7 @@ int closedir(DIR *d) {
 grep -n "LIB_SOURCES" Makefile
 ```
 
-- [ ] **Step 5: Add the `docs/stdlib.md` entries**
+- [x] **Step 5: Add the `docs/stdlib.md` entries**
 
 Add a new `<dirent.h>` section:
 
@@ -2967,7 +2967,7 @@ Add a new `<dirent.h>` section:
   end of directory, or `-EBADF`/`-ENOTDIR`.
 ```
 
-- [ ] **Step 6: Build and verify with a temporary listing check**
+- [x] **Step 6: Build and verify with a temporary listing check**
 
 Temporarily change `userland/mounttest.c`'s `main` to list the root directory instead:
 
@@ -3006,11 +3006,11 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: entries for `HELLO.TXT`, `BIGFILE.TXT`, `DIR`, and `BIN` with `DIR` and `BIN` reported as `type=2` (`DT_DIR`), and a nonzero count. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 7: Restore `mounttest.c` and the four-process boot**
+- [x] **Step 7: Restore `mounttest.c` and the four-process boot**
 
 Restore `mounttest.c` to its Task 9 Step 6 content and `kmain` to the four-process boot. Confirm `git diff --stat userland/mounttest.c` shows no change from the committed version. Rebuild and boot; zero `FAILED`, zero exceptions.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add kernel/syscall.c lib/syscall.c lib/dirent.c lib/include/dirent.h docs/stdlib.md
@@ -3030,7 +3030,7 @@ git commit -m "Add getdents syscall and the opendir/readdir/closedir library API
 
 This is the milestone's headline proof: one program, four filesystems, three of them writable, all through one API.
 
-- [ ] **Step 1: Write `userland/vfstest.c`**
+- [x] **Step 1: Write `userland/vfstest.c`**
 
 ```c
 #include <unistd.h>
@@ -3134,7 +3134,7 @@ int main(int argc, char **argv) {
 }
 ```
 
-- [ ] **Step 2: Add the Makefile rule and disk entry**
+- [x] **Step 2: Add the Makefile rule and disk entry**
 
 ```makefile
 $(USERLAND_BUILD)/VFSTEST.ELF: $(USERLAND_DIR)/vfstest.c $(USERLAND_DIR)/user.ld $(LIB_BUILD)/crt0.o $(LIB_BUILD)/libneoos.a
@@ -3148,7 +3148,7 @@ Add `$(USERLAND_BUILD)/VFSTEST.ELF` to the `$(DISK_IMG)` prerequisites and, with
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/VFSTEST.ELF ::BIN/VFSTEST.ELF
 ```
 
-- [ ] **Step 3: Spawn it alongside the standard boot**
+- [x] **Step 3: Spawn it alongside the standard boot**
 
 In `kernel/kernel.c`, add after the existing `spawn("/BIN/YIELDER.ELF");`:
 
@@ -3158,7 +3158,7 @@ In `kernel/kernel.c`, add after the existing `spawn("/BIN/YIELDER.ELF");`:
 
 Unlike the temporary spawns in earlier tasks, this one **stays** — it is a permanent part of the boot, like `PARENT`/`LOOPER`/`YIELDER`.
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -3172,7 +3172,7 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: three `roundtrip passed` lines (one per writable filesystem), `vnode aliasing passed`, four listings — `/` showing the FAT16 disk's files, `/dev` showing `CONSOLE`/`NULL`/`ZERO` as `type=3`, `/tmp` showing the ramfs files just written, `/mnt` showing `FAT32.TXT` and `SUB` — and `[vfstest] ALL PASSED`. Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add userland/vfstest.c Makefile kernel/kernel.c
@@ -3190,7 +3190,7 @@ git commit -m "Add vfstest exercising all four mounted filesystems"
 - Produces: nothing new. `vfs_vnode_in_use_count()` already exists from Task 2, where `vfs_selftest` uses it to check that a failed path walk leaks no references.
 - Consumes: everything.
 
-- [ ] **Step 1: Add the temporary leak-gate thread**
+- [x] **Step 1: Add the temporary leak-gate thread**
 
 As in milestones 3 and 9, `wait_for_pid` needs a valid current task, so this runs as a kernel thread rather than inline in `kmain`. In `kernel/kernel.c`, above `kmain`:
 
@@ -3227,7 +3227,7 @@ Temporarily replace `kmain`'s five `spawn(...)` calls with:
     task_create_kernel_thread(vfs_leak_test_thread);
 ```
 
-- [ ] **Step 2: Build and verify no leak**
+- [x] **Step 2: Build and verify no leak**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -3243,7 +3243,7 @@ Expected: the `before:` and `after:` lines report **identical** `free_frames` an
 
 Note that `vfstest` creates `RT.TXT` on `/` and `/mnt`, so iterations after the first reopen an existing file rather than creating one — that is intentional, since `O_TRUNC` exercises the truncate path too.
 
-- [ ] **Step 3: Revert the temporary thread and run the final regression**
+- [x] **Step 3: Revert the temporary thread and run the final regression**
 
 Delete `vfs_leak_test_thread` and restore `kmain`'s five `spawn(...)` calls (`PARENT`, two `LOOPER`, `YIELDER`, `VFSTEST`). Confirm `git diff --stat kernel/kernel.c` shows no change against the Task 11 commit.
 
@@ -3265,7 +3265,7 @@ Expected, checked against the spec's success criteria one by one:
 - `[parent] child exit code=42`, the bursty looper interleave, and the dense yielder interleave — milestone 5-9 behavior unchanged.
 - Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 4: Commit (only if the gate caught something)**
+- [x] **Step 4: Commit (only if the gate caught something)**
 
 Nothing to commit if the leak gate passed and `kernel.c` is the only file this task touched and is now reverted — it exists purely as a verification gate, like milestone 9's Task 7. Confirm with:
 
