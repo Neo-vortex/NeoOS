@@ -7,7 +7,7 @@ ASFLAGS := -f elf64
 BUILD_DIR := build
 ISO_DIR := iso
 
-C_SOURCES := $(wildcard kernel/*.c) $(wildcard kernel/mm/*.c)
+C_SOURCES := $(wildcard kernel/*.c) $(wildcard kernel/mm/*.c) $(wildcard kernel/fs/*.c)
 C_OBJECTS := $(patsubst kernel/%.c,$(BUILD_DIR)/%.o,$(C_SOURCES))
 ASM_OBJECTS := $(BUILD_DIR)/boot.o $(BUILD_DIR)/gdt_flush.o $(BUILD_DIR)/isr_stubs.o $(BUILD_DIR)/context_switch.o $(BUILD_DIR)/syscall_entry.o $(BUILD_DIR)/fork_trampoline.o
 

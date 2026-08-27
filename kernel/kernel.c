@@ -15,6 +15,7 @@
 #include "mm/heap.h"
 #include "ata.h"
 #include "fat16.h"
+#include "fs/vfs.h"
 #include "process.h"
 #include "syscall.h"
 #include "cpu.h"
@@ -73,6 +74,10 @@ void kmain(void *multiboot_info) {
     fat16_mount();
     fat16_selftest();
     fat16_write_selftest();
+
+    vfs_init();
+    vfs_mount_fs(0, "/tmp", "ramfs");
+    vfs_selftest();
 
     cpu_init();
 
