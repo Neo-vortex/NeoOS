@@ -51,7 +51,7 @@
 - Produces: `int ata_identify(uint8_t drive, struct ata_identify_info *info)`, `int ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *buffer)`, `int ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const void *buffer)` — `drive` is 0 (primary master) or 1 (primary slave). Consumed by every later task through the FAT driver.
 - Consumes: nothing new.
 
-- [ ] **Step 1: Add the new errno codes to both trees**
+- [x] **Step 1: Add the new errno codes to both trees**
 
 In `kernel/errno.h` and `lib/include/errno.h`, add above `#define ENOENT  2`:
 
@@ -69,7 +69,7 @@ and in numeric order among the rest:
 
 Both files must end up with an identical set of names and values — they are deliberate duplicates of each other.
 
-- [ ] **Step 2: Add the drive parameter to `kernel/ata.h`**
+- [x] **Step 2: Add the drive parameter to `kernel/ata.h`**
 
 Replace the three declarations with:
 
@@ -83,7 +83,7 @@ int ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *buffer);
 int ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const void *buffer);
 ```
 
-- [ ] **Step 3: Thread the parameter through `kernel/ata.c`**
+- [x] **Step 3: Thread the parameter through `kernel/ata.c`**
 
 Three call sites write the drive-head register. Change each:
 
@@ -115,7 +115,7 @@ In `ata_identify`'s two log lines, include which drive it is so the boot log dis
     serial_write_string(" sectors=");
 ```
 
-- [ ] **Step 4: Update every existing caller to pass drive 0**
+- [x] **Step 4: Update every existing caller to pass drive 0**
 
 In `kernel/fat16.c`, every `ata_read_sectors(` and `ata_write_sectors(` call gains a leading `0`. Find them with:
 
@@ -131,7 +131,7 @@ Example — `fat16_mount`'s boot-sector read becomes:
 
 In `kernel/kernel.c`, `ata_identify(&ata_info)` becomes `ata_identify(0, &ata_info)`.
 
-- [ ] **Step 5: Build a second 64MB FAT32 disk image in the Makefile**
+- [x] **Step 5: Build a second 64MB FAT32 disk image in the Makefile**
 
 FAT32 requires at least 65525 clusters; a 32MB image makes `mkfs.fat -F 32` warn that the count is below the supported minimum. 64MB is the floor and is what this plan uses.
 
@@ -176,7 +176,7 @@ run: iso disk-image
 	qemu-system-x86_64 -cpu Nehalem -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw -drive file=$(DISK2_IMG),format=raw
 ```
 
-- [ ] **Step 6: Temporarily probe drive 1 to prove it is reachable**
+- [x] **Step 6: Temporarily probe drive 1 to prove it is reachable**
 
 In `kernel/kernel.c`, right after the existing `ata_identify(0, &ata_info);`:
 
@@ -185,7 +185,7 @@ In `kernel/kernel.c`, right after the existing `ata_identify(0, &ata_info);`:
     ata_identify(1, &ata_info2);
 ```
 
-- [ ] **Step 7: Build and verify**
+- [x] **Step 7: Build and verify**
 
 ```bash
 rm -f build/disk.img build/disk2.img
@@ -199,11 +199,11 @@ grep -c "FAILED\|exception" /tmp/neoos.log
 
 Expected: two `[ata] drive identified` lines, `drive=0x0` with the 32MB image's sector count (0x10000) and `drive=0x1` with the 64MB image's (0x20000). `FAILED|exception` count is 0. Every milestone 5-9 program reproduces its prior behavior.
 
-- [ ] **Step 8: Remove the temporary probe and re-verify**
+- [x] **Step 8: Remove the temporary probe and re-verify**
 
 Delete the `ata_info2` lines added in Step 6. Rebuild and boot again; confirm one `[ata] drive identified` line, zero `FAILED`, zero exceptions.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add kernel/ata.h kernel/ata.c kernel/fat16.c kernel/kernel.c kernel/errno.h lib/include/errno.h Makefile
