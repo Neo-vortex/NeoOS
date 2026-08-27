@@ -1,0 +1,47 @@
+#ifndef NEOOS_LOCK_H
+#define NEOOS_LOCK_H
+
+#include <stdint.h>
+
+// Lock ranks from docs/superpowers/specs/2026-08-27-roadmap-architecture-design.md.
+// Acquisition must be strictly ascending: a lock may only be taken
+// while every lock already held has a STRICTLY LOWER rank. Rank 0 is
+// outermost. The checker exists because this project has no host test
+// runner -- without it, a lock-order inversion is found only by a rare
+// deadlock under QEMU, once SMP makes one possible at all.
+#define LOCK_RANK_PROCTABLE   0
+#define LOCK_RANK_PROCESS     1
+#define LOCK_RANK_THREAD      2
+#define LOCK_RANK_MOUNTTABLE  3
+#define LOCK_RANK_VNODEHASH   4
+#define LOCK_RANK_VNODE       5
+#define LOCK_RANK_BLOCKDEV    6
+#define LOCK_RANK_DRIVER      7
+#define LOCK_RANK_RUNQUEUE    8
+#define LOCK_RANK_HEAP        9
+#define LOCK_RANK_PMM        10
+
+#define LOCK_MAX_HELD 8
+
+struct spinlock {
+    volatile uint32_t locked;
+    uint8_t     rank;
+    const char *name;
+};
+
+void     spin_init(struct spinlock *l, uint8_t rank, const char *name);
+uint64_t spin_lock_irqsave(struct spinlock *l);
+void     spin_unlock_irqrestore(struct spinlock *l, uint64_t flags);
+
+// Returns 1 if acquiring `rank` right now would be legal on this CPU.
+// Exists so the selftest can prove the checker detects an inversion
+// without actually triggering the panic.
+int lock_rank_ok(uint8_t rank);
+
+// Number of spinlocks currently held by this CPU. Used by the mutex
+// code to refuse to sleep with a spinlock held.
+int lock_held_depth(void);
+
+void lock_selftest(void);
+
+#endif

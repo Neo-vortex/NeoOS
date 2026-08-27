@@ -19,6 +19,7 @@
 #include "process.h"
 #include "syscall.h"
 #include "cpu.h"
+#include "lock.h"
 
 void kmain(void *multiboot_info) {
     serial_init();
@@ -67,6 +68,8 @@ void kmain(void *multiboot_info) {
 
     heap_init();
     heap_selftest();
+
+    lock_selftest();
 
     struct ata_identify_info ata_info;
     ata_identify(0, &ata_info);
