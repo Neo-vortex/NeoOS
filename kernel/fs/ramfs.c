@@ -165,19 +165,56 @@ static int ramfs_truncate(struct vnode *vn) {
     return 0;
 }
 
-static int ramfs_mkdir_stub(struct vnode *dir, const char *name) {
-    (void)dir; (void)name;
-    return -EPERM; // implemented in Task 3
+static int ramfs_mkdir(struct vnode *dir, const char *name) {
+    uint64_t existing;
+    if (ramfs_lookup(dir, name, &existing) == 0) { return -EEXIST; }
+
+    struct ramfs_node *d = (struct ramfs_node *)dir->fs_private;
+    for (int i = 1; i < RAMFS_MAX_NODES; i++) {
+        if (nodes[i].in_use) { continue; }
+        nodes[i].in_use = 1;
+        nodes[i].type = VNODE_DIR;
+        nodes[i].parent = (uint32_t)(d - nodes);
+        nodes[i].size = 0;
+        name_copy(nodes[i].name, name);
+        return 0;
+    }
+    return -ENOSPC;
 }
 
-static int ramfs_unlink_stub(struct vnode *dir, const char *name) {
-    (void)dir; (void)name;
-    return -EPERM; // implemented in Task 3
+static int ramfs_unlink(struct vnode *dir, const char *name) {
+    uint64_t id;
+    int rc = ramfs_lookup(dir, name, &id);
+    if (rc != 0) { return rc; }
+    if (nodes[id].type == VNODE_DIR) { return -EISDIR; }
+
+    for (int p = 0; p < RAMFS_MAX_PAGES; p++) {
+        if (nodes[id].pages[p]) { pmm_free(nodes[id].pages[p], 0); nodes[id].pages[p] = 0; }
+    }
+    nodes[id].in_use = 0;
+    return 0;
 }
 
-static int ramfs_readdir_stub(struct vnode *dir, uint32_t index, struct dirent *out) {
-    (void)dir; (void)index; (void)out;
-    return -EPERM; // implemented in Task 3
+// Enumerates the dir's children by ordinal. `index` counts only
+// matching children, so callers can walk 0,1,2,... until -ENOENT
+// without knowing anything about the pool's internal layout.
+static int ramfs_readdir(struct vnode *dir, uint32_t index, struct dirent *out) {
+    struct ramfs_node *d = (struct ramfs_node *)dir->fs_private;
+    uint32_t dir_index = (uint32_t)(d - nodes);
+    uint32_t seen = 0;
+
+    for (int i = 0; i < RAMFS_MAX_NODES; i++) {
+        if (!nodes[i].in_use || nodes[i].parent != dir_index || (uint32_t)i == dir_index) {
+            continue;
+        }
+        if (seen == index) {
+            name_copy(out->name, nodes[i].name);
+            out->type = (nodes[i].type == VNODE_DIR) ? DT_DIR : DT_REG;
+            return 0;
+        }
+        seen++;
+    }
+    return -ENOENT; // past the last entry
 }
 
 const struct vfs_ops ramfs_ops = {
@@ -189,8 +226,8 @@ const struct vfs_ops ramfs_ops = {
     .read       = ramfs_read,
     .write      = ramfs_write,
     .create     = ramfs_create,
-    .mkdir      = ramfs_mkdir_stub,
-    .unlink     = ramfs_unlink_stub,
+    .mkdir      = ramfs_mkdir,
+    .unlink     = ramfs_unlink,
     .truncate   = ramfs_truncate,
-    .readdir    = ramfs_readdir_stub,
+    .readdir    = ramfs_readdir,
 };

@@ -405,5 +405,42 @@ void vfs_selftest(void) {
 
     vnode_put(a);
     vnode_put(b);
+
+    struct vnode *root = vfs_resolve("/tmp", &err);
+    if (!root) {
+        serial_write_string("[vfs] selftest FAILED: resolve /tmp\n");
+        return;
+    }
+    if (root->mount->ops->mkdir(root, "SUB") != 0) {
+        serial_write_string("[vfs] selftest FAILED: mkdir\n");
+        vnode_put(root);
+        return;
+    }
+
+    // Walk the directory by ordinal until -ENOENT; we expect exactly
+    // T.TXT (a file) and SUB (a directory), in either order.
+    struct dirent de;
+    int files = 0, dirs = 0;
+    for (uint32_t i = 0; root->mount->ops->readdir(root, i, &de) == 0; i++) {
+        if (de.type == DT_DIR) { dirs++; } else { files++; }
+    }
+    if (files != 1 || dirs != 1) {
+        serial_write_string("[vfs] selftest FAILED: readdir count wrong\n");
+        vnode_put(root);
+        return;
+    }
+
+    if (root->mount->ops->unlink(root, "T.TXT") != 0) {
+        serial_write_string("[vfs] selftest FAILED: unlink\n");
+        vnode_put(root);
+        return;
+    }
+    if (root->mount->ops->unlink(root, "SUB") != -EISDIR) {
+        serial_write_string("[vfs] selftest FAILED: unlink of a dir should be EISDIR\n");
+        vnode_put(root);
+        return;
+    }
+    vnode_put(root);
+
     serial_write_string("[vfs] selftest passed\n");
 }
