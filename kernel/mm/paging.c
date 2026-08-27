@@ -116,6 +116,64 @@ void paging_init(void) {
     serial_write_string("\n");
 }
 
+// Frees every user-mapped frame and page-table frame reachable from
+// pml4_phys, then the PML4 frame itself. The three shared kernel
+// entries (identity map, physmap, kernel higher-half alias -- see
+// spawn()'s pml4[0]/[256]/[511] setup) are never walked into or
+// freed: they point at kernel-owned tables no process owns.
+// pmm_free() is refcount-aware (see pmm.c) -- a COW-shared frame only
+// actually returns to the allocator once every sharer has released
+// it, so calling this on a fork()'d child's or parent's address space
+// is always safe regardless of sharing.
+//
+// The caller MUST NOT still have pml4_phys loaded in CR3: pmm's buddy
+// allocator keeps each free block's next/prev links in the block's own
+// first 16 bytes, so freeing the PML4 frame overwrites pml4[0] and
+// pml4[1] -- pml4[0] being the low identity map that pmm dereferences
+// free blocks through. See task_exit(), which switches to p4_table
+// first.
+void free_address_space(uint64_t pml4_phys) {
+    uint64_t *pml4 = (uint64_t *)phys_to_virt(pml4_phys);
+
+    for (unsigned i4 = 0; i4 < 512; i4++) {
+        if (i4 == 0 || i4 == PHYSMAP_PML4_INDEX || i4 == 511) {
+            continue; // shared kernel entries -- not owned by this address space
+        }
+        if (!(pml4[i4] & PAGE_PRESENT)) {
+            continue;
+        }
+        uint64_t pdpt_phys = pml4[i4] & PAGE_ADDR_MASK;
+        uint64_t *pdpt = (uint64_t *)phys_to_virt(pdpt_phys);
+
+        for (unsigned i3 = 0; i3 < 512; i3++) {
+            if (!(pdpt[i3] & PAGE_PRESENT)) {
+                continue;
+            }
+            uint64_t pd_phys = pdpt[i3] & PAGE_ADDR_MASK;
+            uint64_t *pd = (uint64_t *)phys_to_virt(pd_phys);
+
+            for (unsigned i2 = 0; i2 < 512; i2++) {
+                if (!(pd[i2] & PAGE_PRESENT)) {
+                    continue;
+                }
+                uint64_t pt_phys = pd[i2] & PAGE_ADDR_MASK;
+                uint64_t *pt = (uint64_t *)phys_to_virt(pt_phys);
+
+                for (unsigned i1 = 0; i1 < 512; i1++) {
+                    if (pt[i1] & PAGE_PRESENT) {
+                        pmm_free(pt[i1] & PAGE_ADDR_MASK, 0);
+                    }
+                }
+                pmm_free(pt_phys, 0);
+            }
+            pmm_free(pd_phys, 0);
+        }
+        pmm_free(pdpt_phys, 0);
+    }
+
+    pmm_free(pml4_phys, 0);
+}
+
 #define PAGING_SELFTEST_VA 0xFFFF900000000000ULL
 
 void paging_selftest(void) {

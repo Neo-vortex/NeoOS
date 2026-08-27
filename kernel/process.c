@@ -107,6 +107,7 @@ struct task *task_create_kernel_thread(void (*entry)(void)) {
     t->state = TASK_READY;
     t->saved_rsp = (uint64_t)sp;
     t->kernel_stack_top = stack_top;
+    t->kernel_stack_phys = stack_phys;
     t->pml4_phys = 0;
     t->parent_pid = 0;
     t->exit_code = 0;
@@ -141,9 +142,17 @@ void schedule(void) {
     current = next;
     tss.rsp0 = next->kernel_stack_top;
 
-    if (next->pml4_phys) {
-        __asm__ volatile ("mov %0, %%cr3" :: "r"(next->pml4_phys) : "memory");
-    }
+    // Always establish a definite CR3, even for a kernel-mode-only task
+    // (pml4_phys == 0 -- falls back to the kernel's own never-freed
+    // p4_table). Leaving CR3 unchanged in that case used to be harmless
+    // (an exited process's now-zombie PML4 just leaked, unused-but-
+    // intact memory), but now that task_exit() actually frees a
+    // process's PML4 frame back to the allocator, a stale CR3 left
+    // pointing at it could get silently reused and overwritten by the
+    // very next pmm_alloc() -- corrupting the page table the CPU is
+    // still actively translating through.
+    uint64_t next_cr3 = next->pml4_phys ? next->pml4_phys : (uint64_t)(uintptr_t)p4_table;
+    __asm__ volatile ("mov %0, %%cr3" :: "r"(next_cr3) : "memory");
 
     if (prev == next) {
         return;
@@ -219,6 +228,7 @@ struct task *spawn(const char *path) {
     t->state = TASK_READY;
     t->saved_rsp = (uint64_t)sp;
     t->kernel_stack_top = kstack_top;
+    t->kernel_stack_phys = kstack_phys;
     t->pml4_phys = pml4_phys;
     t->parent_pid = current ? current->pid : 0;
     t->exit_code = 0;
@@ -242,6 +252,39 @@ void task_exit(int code) {
     serial_write_hex64((uint64_t)(int64_t)code);
     serial_write_string("\n");
 
+    // Uniprocessor critical section (same reasoning as syscall.c's
+    // fs_lock): free_address_space() is now long enough (a full
+    // page-table walk) that a timer interrupt landing mid-walk would
+    // preempt this task -- and since its state is already ZOMBIE (not
+    // READY), schedule() would never re-enqueue it, permanently
+    // abandoning task_exit() before it reaches its own schedule() call
+    // below. sti before that call is required, not optional: EFLAGS.IF
+    // is not part of a task's saved context (context_switch.asm never
+    // touches it), so every other schedule() caller in this kernel
+    // relies on IF already being 1 -- leaving it cleared here would
+    // silently disable preemption for whichever task runs next.
+    __asm__ volatile ("cli");
+
+    if (current->pml4_phys) {
+        // Leave the dying address space BEFORE freeing it. A freed frame
+        // stops being page-table data the instant pmm_free() takes it:
+        // the buddy allocator stores each free block's next/prev links in
+        // the block's own first 16 bytes, so freeing the PML4 frame
+        // writes a pointer pair straight over pml4[0] and pml4[1] -- and
+        // pml4[0] is the low identity map that pmm itself dereferences
+        // free blocks through. Freeing while this table is still in CR3
+        // therefore unmaps the identity map out from under the allocator
+        // mid-call (observed: `free_lists[order]->prev = block` faulting
+        // on the head pointer written one statement earlier). Switching
+        // to the kernel's own never-freed p4_table is safe here for the
+        // same reason schedule() falls back to it for kernel-only tasks:
+        // kernel text (PML4[511]) and the physmap (PML4[256]) live there
+        // too, and nothing below runs through user mappings.
+        __asm__ volatile ("mov %0, %%cr3" :: "r"((uint64_t)(uintptr_t)p4_table) : "memory");
+        free_address_space(current->pml4_phys);
+        current->pml4_phys = 0;
+    }
+
     for (int i = 0; i < MAX_TASKS; i++) {
         if (tasks[i].state == TASK_BLOCKED && tasks[i].waiting_for_pid == current->pid) {
             tasks[i].state = TASK_READY;
@@ -250,6 +293,7 @@ void task_exit(int code) {
         }
     }
 
+    __asm__ volatile ("sti");
     schedule();
     for (;;) {
         __asm__ volatile ("hlt"); // unreachable: schedule() never resumes a ZOMBIE task
@@ -260,6 +304,7 @@ int64_t wait_for_pid(int pid) {
     for (int i = 0; i < MAX_TASKS; i++) {
         if (tasks[i].pid == pid && tasks[i].state == TASK_ZOMBIE) {
             int code = tasks[i].exit_code;
+            pmm_free(tasks[i].kernel_stack_phys, KERNEL_STACK_ORDER);
             tasks[i].state = TASK_UNUSED;
             return code;
         }
@@ -273,6 +318,7 @@ int64_t wait_for_pid(int pid) {
     for (int i = 0; i < MAX_TASKS; i++) {
         if (tasks[i].pid == pid && tasks[i].state == TASK_ZOMBIE) {
             int code = tasks[i].exit_code;
+            pmm_free(tasks[i].kernel_stack_phys, KERNEL_STACK_ORDER);
             tasks[i].state = TASK_UNUSED;
             return code;
         }

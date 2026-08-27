@@ -41,6 +41,7 @@ struct task {
     enum task_state state;
     uint64_t saved_rsp;
     uint64_t kernel_stack_top;
+    uint64_t kernel_stack_phys; // for freeing at reap time (see wait_for_pid)
     uint64_t pml4_phys; // 0 = share the kernel's own address space (kernel-mode-only task)
     int parent_pid;
     int exit_code;
