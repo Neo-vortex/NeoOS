@@ -483,5 +483,29 @@ void vfs_selftest(void) {
     }
     vnode_put(nested);
 
+    // Read a file that exists only on the FAT32 volume. Reaching it
+    // proves variant detection, 32-bit FAT entries, and the
+    // cluster-chained root all work.
+    struct vnode *f32 = vfs_resolve("/mnt/FAT32.TXT", &err);
+    if (!f32) {
+        serial_write_string("[vfs] selftest FAILED: resolve /mnt/FAT32.TXT\n");
+        return;
+    }
+    char f32buf[8] = {0};
+    if (f32->mount->ops->read(f32, 0, f32buf, 5) != 5 || f32buf[0] != 'H') {
+        serial_write_string("[vfs] selftest FAILED: FAT32 read\n");
+        vnode_put(f32);
+        return;
+    }
+    vnode_put(f32);
+
+    // And one in a FAT32 subdirectory.
+    struct vnode *f32n = vfs_resolve("/mnt/SUB/F32NEST.TXT", &err);
+    if (!f32n) {
+        serial_write_string("[vfs] selftest FAILED: resolve /mnt/SUB/F32NEST.TXT\n");
+        return;
+    }
+    vnode_put(f32n);
+
     serial_write_string("[vfs] selftest passed\n");
 }
