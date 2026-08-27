@@ -27,6 +27,8 @@
 #define SYS_LSEEK  11
 #define SYS_FORK   12
 #define SYS_EXEC   13
+#define SYS_MOUNT  14
+#define SYS_UMOUNT 15
 
 // Mirrors lib/include/fcntl.h's O_* values exactly -- the two trees
 // don't share headers, so these must be kept in sync by hand.
@@ -82,6 +84,19 @@ static void fs_lock_release(void) {
 // Copies up to out_size-1 bytes from a user-supplied (pointer, len)
 // pair into a NUL-terminated kernel buffer. Shared by every syscall
 // that takes a path (SPAWN/OPEN/MKDIR/UNLINK).
+// Bounded copy of a NUL-terminated user string. Used only by
+// SYS_MOUNT: every other path-taking syscall passes an explicit
+// (pointer, length) pair via copy_user_path, but mount needs three
+// strings and syscall_dispatch has only four argument slots
+// (a1-a4, from rdi/rsi/rdx/r10 in syscall_entry.asm). Widening the
+// syscall ABI to six arguments for one call was rejected.
+static void copy_user_string(int64_t user_ptr, char *out, uint64_t out_size) {
+    const char *s = (const char *)(uintptr_t)user_ptr;
+    uint64_t i = 0;
+    while (i < out_size - 1 && s[i]) { out[i] = s[i]; i++; }
+    out[i] = '\0';
+}
+
 static void copy_user_path(int64_t user_ptr, int64_t user_len, char *out, uint64_t out_size) {
     uint64_t len = (uint64_t)user_len;
     if (len > out_size - 1) {
@@ -273,6 +288,24 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
             char path_buf[64];
             copy_user_path(a1, a2, path_buf, sizeof(path_buf));
             return exec_task(path_buf, frame) ? 0 : -1;
+        }
+        case SYS_MOUNT: {
+            char source[16], target[VFS_MAX_PATH], fstype[16];
+            copy_user_string(a1, source, sizeof(source));
+            copy_user_string(a2, target, sizeof(target));
+            copy_user_string(a3, fstype, sizeof(fstype));
+            fs_lock_acquire();
+            int rc = vfs_mount_fs(source, target, fstype);
+            fs_lock_release();
+            return rc;
+        }
+        case SYS_UMOUNT: {
+            char target[VFS_MAX_PATH];
+            copy_user_path(a1, a2, target, sizeof(target));
+            fs_lock_acquire();
+            int rc = vfs_umount(target);
+            fs_lock_release();
+            return rc;
         }
         default:
             serial_write_string("[syscall] unknown syscall number\n");

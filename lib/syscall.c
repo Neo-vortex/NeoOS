@@ -16,6 +16,8 @@
 #define SYS_LSEEK  11
 #define SYS_FORK   12
 #define SYS_EXEC   13
+#define SYS_MOUNT  14
+#define SYS_UMOUNT 15
 
 static inline int64_t syscall0(int64_t num) {
     int64_t ret;
@@ -82,6 +84,19 @@ int spawn(const char *path) {
 
 int fork(void) {
     return (int)syscall0(SYS_FORK);
+}
+
+int mount(const char *source, const char *target, const char *fstype) {
+    // Three NUL-terminated pointers, no lengths -- see the note on
+    // copy_user_string in kernel/syscall.c for why mount differs from
+    // every other path-taking call here.
+    return (int)syscall3(SYS_MOUNT, (int64_t)(uint64_t)source,
+                          (int64_t)(uint64_t)target, (int64_t)(uint64_t)fstype);
+}
+
+int umount(const char *target) {
+    uint64_t len = strlen(target);
+    return (int)syscall2(SYS_UMOUNT, (int64_t)(uint64_t)target, (int64_t)len);
 }
 
 int exec(const char *path) {

@@ -48,13 +48,25 @@ alongside the library code that exposes it.
   returns. Returns `-1` on failure (bad path, out of memory), leaving
   the calling process completely unchanged and still running its
   original code.
+- `int mount(const char *source, const char *target, const char *fstype)`
+  — mounts a filesystem at `target`. `fstype` is `"fat"`, `"ramfs"`, or
+  `"devfs"`; `source` is `"hd0"` or `"hd1"` for `"fat"` and ignored
+  otherwise. FAT16 versus FAT32 is auto-detected from the volume's
+  cluster count. Returns 0, or `-ENODEV`, `-EEXIST`, or `-ENOSPC`.
+- `int umount(const char *target)` — unmounts the filesystem at
+  `target`. Returns 0, `-ENOENT` if nothing is mounted there, or
+  `-EBUSY` if any file on it is still open. The mount is left
+  completely intact on `-EBUSY`.
 - `int mkdir(const char *path)` — creates a new, empty directory.
   Returns 0, or a negative `<errno.h>` code on failure.
 - `int unlink(const char *path)` — deletes the file at `path`. Returns
   0, or a negative `<errno.h>` code on failure (including `-EISDIR` if
   `path` is a directory; there is no `rmdir`).
 - `STDIN_FILENO`/`STDOUT_FILENO`/`STDERR_FILENO` (0/1/2) and
-  `SEEK_SET`/`SEEK_CUR`/`SEEK_END` (0/1/2) constants.
+  `SEEK_SET`/`SEEK_CUR`/`SEEK_END` (0/1/2) constants. The three
+  standard streams are ordinary file descriptors open on
+  `/dev/CONSOLE`, not special-cased numbers: they can be `close`d, and
+  a later `open` may reuse the slot.
 
 ## `<fcntl.h>`
 
@@ -72,17 +84,30 @@ there is no separate settable `errno` variable. `spawn`/`wait`/
 `getpid` are unaffected and keep their existing plain `-1`-on-failure
 convention.
 
-- `ENOENT` (2) — path/file not found.
+- `EPERM` (1) — the operation is not permitted on this filesystem
+  (e.g. creating or deleting a node under `/dev`).
+- `ENOENT` (2) — path/file not found, or nothing mounted at a
+  `umount` target.
 - `EBADF` (9) — invalid or closed file descriptor.
-- `EEXIST` (17) — `mkdir`/`open(O_CREAT)` target already exists.
+- `EBUSY` (16) — `umount` called while a file on that filesystem is
+  still open. The mount is left completely intact.
+- `EEXIST` (17) — `mkdir`/`open(O_CREAT)` target already exists, or
+  something is already mounted at a `mount` target.
+- `ENODEV` (19) — `mount` given an unknown `fstype`, or a volume it
+  cannot read or recognise (FAT12 is detected and rejected here).
 - `ENOTDIR` (20) — a path component used as a directory isn't one.
-- `EISDIR` (21) — `unlink` called on a directory.
+- `EISDIR` (21) — `unlink` called on a directory, or a directory
+  opened for writing.
 - `EINVAL` (22) — bad argument (e.g. an `lseek` result would be
   negative, or an unrecognized `whence`).
-- `EMFILE` (24) — the process's file descriptor table is full (8
-  open files at once, maximum).
-- `ENOSPC` (28) — disk full (no free cluster), or the root directory
-  is full (it has a fixed maximum entry count).
+- `ENFILE` (23) — the system-wide open-file table is full. Distinct
+  from `EMFILE`, which is per-process.
+- `EMFILE` (24) — the process's file descriptor table is full (16
+  entries, of which 0/1/2 are the standard streams, so 13 files at
+  once, maximum).
+- `ENOSPC` (28) — disk full (no free cluster), the mount table is
+  full, or a FAT16 root directory is full (it has a fixed maximum
+  entry count).
 
 ## `<string.h>`
 

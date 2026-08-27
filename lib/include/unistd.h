@@ -65,6 +65,17 @@ int fork(void);
 // unchanged and still running its original code.
 int exec(const char *path);
 
+// Mounts the filesystem `fstype` ("fat", "ramfs", or "devfs") at
+// `target`. `source` is "hd0" or "hd1" for "fat" and ignored
+// otherwise; FAT16 versus FAT32 is auto-detected. Returns 0, or
+// -ENODEV (unknown type or unreadable volume), -EEXIST (already
+// mounted there), or -ENOSPC (mount table full).
+int mount(const char *source, const char *target, const char *fstype);
+
+// Unmounts the filesystem at `target`. Returns 0, -ENOENT if nothing
+// is mounted there, or -EBUSY if any file on it is still open.
+int umount(const char *target);
+
 // Creates a new, empty directory at `path`. Returns 0, or a negative
 // errno.h code on failure.
 int mkdir(const char *path);
