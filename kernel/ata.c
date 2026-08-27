@@ -43,8 +43,8 @@ static int ata_wait_status(uint8_t mask, uint8_t value) {
     return ata_wait_status_bounded(mask, value, ATA_POLL_MAX_ITERATIONS);
 }
 
-int ata_identify(struct ata_identify_info *info) {
-    outb(ATA_DRIVE_HEAD, 0xA0); // master drive
+int ata_identify(uint8_t drive, struct ata_identify_info *info) {
+    outb(ATA_DRIVE_HEAD, 0xA0 | ((drive & 1) << 4));
     outb(ATA_SECCOUNT, 0);
     outb(ATA_LBA_LOW, 0);
     outb(ATA_LBA_MID, 0);
@@ -52,7 +52,9 @@ int ata_identify(struct ata_identify_info *info) {
     outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
 
     if (inb(ATA_STATUS) == 0) {
-        serial_write_string("[ata] identify FAILED: no drive present\n");
+        serial_write_string("[ata] identify FAILED: no drive present, drive=");
+        serial_write_hex64(drive);
+        serial_write_string("\n");
         return 0;
     }
     if (!ata_wait_status(ATA_STATUS_BSY, 0)) {
@@ -71,7 +73,9 @@ int ata_identify(struct ata_identify_info *info) {
 
     info->sector_count = (uint32_t)identify_data[61] << 16 | identify_data[60];
 
-    serial_write_string("[ata] drive identified, sectors=");
+    serial_write_string("[ata] drive identified, drive=");
+    serial_write_hex64(drive);
+    serial_write_string(" sectors=");
     serial_write_hex64(info->sector_count);
     serial_write_string(" (");
     serial_write_hex64((uint64_t)info->sector_count * ATA_SECTOR_SIZE / (1024 * 1024));
@@ -79,10 +83,10 @@ int ata_identify(struct ata_identify_info *info) {
     return 1;
 }
 
-int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer) {
+int ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *buffer) {
     uint16_t *out = (uint16_t *)buffer;
 
-    outb(ATA_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F)); // LBA mode, master drive
+    outb(ATA_DRIVE_HEAD, 0xE0 | ((drive & 1) << 4) | ((lba >> 24) & 0x0F)); // LBA mode
     outb(ATA_SECCOUNT, count);
     outb(ATA_LBA_LOW, (uint8_t)(lba & 0xFF));
     outb(ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));
@@ -111,10 +115,10 @@ int ata_read_sectors(uint32_t lba, uint8_t count, void *buffer) {
     return 1;
 }
 
-int ata_write_sectors(uint32_t lba, uint8_t count, const void *buffer) {
+int ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const void *buffer) {
     const uint16_t *in = (const uint16_t *)buffer;
 
-    outb(ATA_DRIVE_HEAD, 0xE0 | ((lba >> 24) & 0x0F)); // LBA mode, master drive
+    outb(ATA_DRIVE_HEAD, 0xE0 | ((drive & 1) << 4) | ((lba >> 24) & 0x0F)); // LBA mode
     outb(ATA_SECCOUNT, count);
     outb(ATA_LBA_LOW, (uint8_t)(lba & 0xFF));
     outb(ATA_LBA_MID, (uint8_t)((lba >> 8) & 0xFF));

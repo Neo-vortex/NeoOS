@@ -68,7 +68,7 @@ void kmain(void *multiboot_info) {
     heap_selftest();
 
     struct ata_identify_info ata_info;
-    ata_identify(&ata_info);
+    ata_identify(0, &ata_info);
 
     fat16_mount();
     fat16_selftest();

@@ -60,7 +60,7 @@ static uint32_t cluster_to_lba(uint16_t cluster) {
 
 int fat16_mount(void) {
     uint8_t sector[SECTOR_SIZE];
-    if (!ata_read_sectors(0, 1, sector)) {
+    if (!ata_read_sectors(0, 0, 1, sector)) {
         serial_write_string("[fat16] mount FAILED: could not read boot sector\n");
         return 0;
     }
@@ -94,7 +94,7 @@ static uint16_t fat16_next_cluster(uint16_t cluster) {
     uint32_t offset_in_sector = fat_offset % bytes_per_sector;
 
     uint8_t sector[SECTOR_SIZE];
-    ata_read_sectors(fat_sector, 1, sector);
+    ata_read_sectors(0, fat_sector, 1, sector);
     uint16_t *entries = (uint16_t *)sector;
     return entries[offset_in_sector / 2];
 }
@@ -105,10 +105,10 @@ static void fat16_set_next_cluster(uint16_t cluster, uint16_t value) {
     uint32_t offset_in_sector = fat_offset % bytes_per_sector;
 
     uint8_t sector[SECTOR_SIZE];
-    ata_read_sectors(fat_sector, 1, sector);
+    ata_read_sectors(0, fat_sector, 1, sector);
     uint16_t *entries = (uint16_t *)sector;
     entries[offset_in_sector / 2] = value;
-    ata_write_sectors(fat_sector, 1, sector);
+    ata_write_sectors(0, fat_sector, 1, sector);
 }
 
 // Scans the FAT linearly from cluster 2 for a free (0x0000) entry,
@@ -177,12 +177,12 @@ static void write_range(uint16_t chain_start, uint32_t write_position, const voi
 
         uint8_t sector[SECTOR_SIZE];
         if (offset_in_sector != 0 || to_write != bytes_per_sector) {
-            ata_read_sectors(lba, 1, sector); // partial sector: preserve untouched bytes
+            ata_read_sectors(0, lba, 1, sector); // partial sector: preserve untouched bytes
         }
         for (uint32_t i = 0; i < to_write; i++) {
             sector[offset_in_sector + i] = zero_fill ? 0 : in[written + i];
         }
-        ata_write_sectors(lba, 1, sector);
+        ata_write_sectors(0, lba, 1, sector);
 
         written += to_write;
     }
@@ -197,7 +197,7 @@ uint32_t fat16_read_file(uint16_t first_cluster, uint32_t size, void *buffer) {
     while (cluster < FAT16_EOC_MIN && bytes_read < size) {
         uint32_t lba = cluster_to_lba(cluster);
         for (uint8_t s = 0; s < sectors_per_cluster && bytes_read < size; s++) {
-            ata_read_sectors(lba + s, 1, sector_buf);
+            ata_read_sectors(0, lba + s, 1, sector_buf);
             uint32_t to_copy = size - bytes_read;
             if (to_copy > bytes_per_sector) {
                 to_copy = bytes_per_sector;
@@ -232,7 +232,7 @@ void fat16_read_at(uint16_t first_cluster, uint32_t position, void *buf, uint32_
         }
 
         uint8_t sector[SECTOR_SIZE];
-        ata_read_sectors(lba, 1, sector);
+        ata_read_sectors(0, lba, 1, sector);
         for (uint32_t i = 0; i < to_read; i++) {
             out[read_so_far + i] = sector[offset_in_sector + i];
         }
@@ -381,7 +381,7 @@ static int find_in_root(const uint8_t *target_name, struct fat16_dirent *out,
     uint8_t sector[SECTOR_SIZE];
     for (uint32_t s = 0; s < root_dir_sector_count; s++) {
         uint32_t lba = root_dir_start_lba + s;
-        ata_read_sectors(lba, 1, sector);
+        ata_read_sectors(0, lba, 1, sector);
         int result = scan_sector_for_name(sector, lba, target_name, out, out_lba, out_offset);
         if (result != 0) {
             return result > 0;
@@ -397,7 +397,7 @@ static int find_in_directory_cluster(uint16_t dir_cluster, const uint8_t *target
     while (cluster < FAT16_EOC_MIN) {
         uint32_t lba = cluster_to_lba(cluster);
         for (uint8_t s = 0; s < sectors_per_cluster; s++) {
-            ata_read_sectors(lba + s, 1, sector);
+            ata_read_sectors(0, lba + s, 1, sector);
             int result = scan_sector_for_name(sector, lba + s, target_name, out, out_lba, out_offset);
             if (result != 0) {
                 return result > 0;
@@ -441,12 +441,12 @@ static int create_entry_in_directory(uint16_t dir_cluster, int in_root, const ui
     if (in_root) {
         for (uint32_t s = 0; s < root_dir_sector_count; s++) {
             uint32_t lba = root_dir_start_lba + s;
-            ata_read_sectors(lba, 1, sector);
+            ata_read_sectors(0, lba, 1, sector);
             struct fat16_dirent *entries = (struct fat16_dirent *)sector;
             for (uint32_t e = 0; e < DIRENTS_PER_SECTOR; e++) {
                 if (entries[e].name[0] == 0x00 || entries[e].name[0] == 0xE5) {
                     write_dirent(&entries[e], fat_name, attr, first_cluster, size);
-                    ata_write_sectors(lba, 1, sector);
+                    ata_write_sectors(0, lba, 1, sector);
                     if (out_lba) {
                         *out_lba = lba;
                     }
@@ -465,12 +465,12 @@ static int create_entry_in_directory(uint16_t dir_cluster, int in_root, const ui
     while (cluster < FAT16_EOC_MIN) {
         uint32_t lba = cluster_to_lba(cluster);
         for (uint8_t s = 0; s < sectors_per_cluster; s++) {
-            ata_read_sectors(lba + s, 1, sector);
+            ata_read_sectors(0, lba + s, 1, sector);
             struct fat16_dirent *entries = (struct fat16_dirent *)sector;
             for (uint32_t e = 0; e < DIRENTS_PER_SECTOR; e++) {
                 if (entries[e].name[0] == 0x00 || entries[e].name[0] == 0xE5) {
                     write_dirent(&entries[e], fat_name, attr, first_cluster, size);
-                    ata_write_sectors(lba + s, 1, sector);
+                    ata_write_sectors(0, lba + s, 1, sector);
                     if (out_lba) {
                         *out_lba = lba + s;
                     }
@@ -497,12 +497,12 @@ static int create_entry_in_directory(uint16_t dir_cluster, int in_root, const ui
     }
     uint32_t new_lba = cluster_to_lba(new_cluster);
     for (uint8_t s = 0; s < sectors_per_cluster; s++) {
-        ata_write_sectors(new_lba + s, 1, zero_sector);
+        ata_write_sectors(0, new_lba + s, 1, zero_sector);
     }
 
     struct fat16_dirent *entries = (struct fat16_dirent *)zero_sector;
     write_dirent(&entries[0], fat_name, attr, first_cluster, size);
-    ata_write_sectors(new_lba, 1, zero_sector);
+    ata_write_sectors(0, new_lba, 1, zero_sector);
     if (out_lba) {
         *out_lba = new_lba;
     }
@@ -611,7 +611,7 @@ int fat16_mkdir(const char *path) {
     }
     uint32_t lba = cluster_to_lba(new_cluster);
     for (uint8_t s = 0; s < sectors_per_cluster; s++) {
-        ata_write_sectors(lba + s, 1, zero_sector);
+        ata_write_sectors(0, lba + s, 1, zero_sector);
     }
 
     uint32_t dir_lba;
@@ -634,7 +634,7 @@ int fat16_delete_entry(const char *path) {
     }
 
     uint8_t sector[SECTOR_SIZE];
-    ata_read_sectors(dir_lba, 1, sector);
+    ata_read_sectors(0, dir_lba, 1, sector);
     struct fat16_dirent *entry = (struct fat16_dirent *)(sector + dir_offset);
     if (entry->attr & FAT_ATTR_DIRECTORY) {
         return -EISDIR;
@@ -644,17 +644,17 @@ int fat16_delete_entry(const char *path) {
         fat16_free_chain(cluster);
     }
     entry->name[0] = 0xE5;
-    ata_write_sectors(dir_lba, 1, sector);
+    ata_write_sectors(0, dir_lba, 1, sector);
     return 0;
 }
 
 void fat16_update_entry_size(uint32_t dir_lba, uint16_t dir_offset, uint16_t first_cluster, uint32_t size) {
     uint8_t sector[SECTOR_SIZE];
-    ata_read_sectors(dir_lba, 1, sector);
+    ata_read_sectors(0, dir_lba, 1, sector);
     struct fat16_dirent *entry = (struct fat16_dirent *)(sector + dir_offset);
     entry->first_cluster_low = first_cluster;
     entry->file_size = size;
-    ata_write_sectors(dir_lba, 1, sector);
+    ata_write_sectors(0, dir_lba, 1, sector);
 }
 
 int fat16_find(const char *path, uint16_t *out_cluster, uint32_t *out_size,
@@ -788,13 +788,13 @@ void fat16_write_selftest(void) {
         write_buf[i] = (uint8_t)(i & 0xFF);
     }
     uint32_t lba = cluster_to_lba(cluster);
-    if (!ata_write_sectors(lba, 1, write_buf)) {
+    if (!ata_write_sectors(0, lba, 1, write_buf)) {
         serial_write_string("[fat16] write selftest FAILED: ata_write_sectors failed\n");
         return;
     }
 
     uint8_t read_buf[SECTOR_SIZE];
-    if (!ata_read_sectors(lba, 1, read_buf)) {
+    if (!ata_read_sectors(0, lba, 1, read_buf)) {
         serial_write_string("[fat16] write selftest FAILED: ata_read_sectors failed\n");
         return;
     }

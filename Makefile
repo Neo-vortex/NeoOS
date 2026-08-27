@@ -55,6 +55,7 @@ iso: $(BUILD_DIR)/kernel.elf
 	grub-mkrescue -o $(BUILD_DIR)/neoos.iso $(ISO_DIR)
 
 DISK_IMG := $(BUILD_DIR)/disk.img
+DISK2_IMG := $(BUILD_DIR)/disk2.img
 DISK_SRC := $(BUILD_DIR)/disk-src
 
 LIB_DIR := lib
@@ -140,10 +141,22 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/FORKTEST.ELF ::BIN/FORKTEST.ELF
 	mcopy -i $(DISK_IMG) $(USERLAND_BUILD)/EXECTARG.ELF ::BIN/EXECTARG.ELF
 
-disk-image: $(DISK_IMG)
+# 64MB, not 32: FAT32 needs at least 65525 clusters, and mkfs.fat warns
+# that a 32MB image falls below that. Depends on $(DISK_IMG) only so
+# that rule's mkdir of $(DISK_SRC) has already run.
+$(DISK2_IMG): $(DISK_IMG)
+	dd if=/dev/zero of=$(DISK2_IMG) bs=1M count=64 status=none
+	mkfs.fat -F 32 $(DISK2_IMG)
+	printf 'Hello from the FAT32 volume!\n' > $(DISK_SRC)/FAT32.TXT
+	mcopy -i $(DISK2_IMG) $(DISK_SRC)/FAT32.TXT ::FAT32.TXT
+	mmd -i $(DISK2_IMG) ::SUB
+	printf 'nested on fat32\n' > $(DISK_SRC)/F32NEST.TXT
+	mcopy -i $(DISK2_IMG) $(DISK_SRC)/F32NEST.TXT ::SUB/F32NEST.TXT
+
+disk-image: $(DISK_IMG) $(DISK2_IMG)
 
 run: iso disk-image
-	qemu-system-x86_64 -cpu Nehalem -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw
+	qemu-system-x86_64 -cpu Nehalem -boot order=d -cdrom $(BUILD_DIR)/neoos.iso -drive file=$(DISK_IMG),format=raw -drive file=$(DISK2_IMG),format=raw
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO_DIR)
