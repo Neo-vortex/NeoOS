@@ -29,7 +29,7 @@
 - Produces: `void pmm_frame_share(uint64_t phys)`; `unsigned pmm_frame_refcount(uint64_t phys)`. Consumed by Task 4 (COW fault handler) and Task 5 (`fork_task`).
 - Consumes: nothing new.
 
-- [ ] **Step 1: Add the refcount array and update `pmm_alloc`/`pmm_free`**
+- [x] **Step 1: Add the refcount array and update `pmm_alloc`/`pmm_free`**
 
 In `kernel/mm/pmm.c`, add alongside the existing `frame_order` array:
 
@@ -109,7 +109,7 @@ unsigned pmm_frame_refcount(uint64_t phys) {
 }
 ```
 
-- [ ] **Step 2: Declare the new functions in `kernel/mm/pmm.h`**
+- [x] **Step 2: Declare the new functions in `kernel/mm/pmm.h`**
 
 Add after `void pmm_free(uint64_t phys_addr, unsigned order);`:
 
@@ -125,7 +125,7 @@ void pmm_frame_share(uint64_t phys);
 unsigned pmm_frame_refcount(uint64_t phys);
 ```
 
-- [ ] **Step 3: Extend `pmm_selftest` to cover sharing**
+- [x] **Step 3: Extend `pmm_selftest` to cover sharing**
 
 In `kernel/mm/pmm.c`, add to the end of `pmm_selftest` (before its final `serial_write_string("[pmm] selftest passed...")` call), reusing the same baseline-comparison style as the existing test:
 
@@ -156,13 +156,13 @@ In `kernel/mm/pmm.c`, add to the end of `pmm_selftest` (before its final `serial
     }
 ```
 
-- [ ] **Step 4: Build and verify**
+- [x] **Step 4: Build and verify**
 
 Run: `make clean && make disk-image && make iso`, boot with
 `-cpu Nehalem -boot order=d -cdrom build/neoos.iso -drive file=build/disk.img,format=raw -serial file:/tmp/neoos.log -display none -no-reboot -no-shutdown -d int,guest_errors -D /tmp/qemu-int.log`.
 Expected: `[pmm] selftest passed, free_frames=...` still appears (now exercising the new share/refcount assertions too), rest of milestone 5-8's boot lifecycle unaffected, zero `FAILED`, zero exceptions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kernel/mm/pmm.c kernel/mm/pmm.h
@@ -180,7 +180,7 @@ git commit -m "Add per-frame reference counting to the physical memory manager"
 - Produces: `struct syscall_frame` (in `process.h`); `syscall_dispatch`'s new 6th parameter `struct syscall_frame *frame`. Consumed by Task 5 (`fork_task`) and Task 6 (`exec_task`).
 - Consumes: nothing new. This task is pure plumbing -- the new parameter is accepted but unused until Task 5.
 
-- [ ] **Step 1: Define `struct syscall_frame` in `kernel/process.h`**
+- [x] **Step 1: Define `struct syscall_frame` in `kernel/process.h`**
 
 Add near the top of `kernel/process.h`, after the includes:
 
@@ -202,7 +202,7 @@ struct syscall_frame {
 };
 ```
 
-- [ ] **Step 2: Pass the frame pointer from `syscall_entry.asm`**
+- [x] **Step 2: Pass the frame pointer from `syscall_entry.asm`**
 
 In `kernel/syscall_entry.asm`, the existing register-reorder block ends with `mov r8, rax`. Add one line right after it, before `call syscall_dispatch`:
 
@@ -216,7 +216,7 @@ In `kernel/syscall_entry.asm`, the existing register-reorder block ends with `mo
 
 (`r9` was only used transiently as scratch earlier in the reorder block, so overwriting it here is safe -- its scratch value is no longer needed.)
 
-- [ ] **Step 3: Update `syscall_dispatch`'s signature in `kernel/syscall.c`**
+- [x] **Step 3: Update `syscall_dispatch`'s signature in `kernel/syscall.c`**
 
 Change:
 
@@ -235,12 +235,12 @@ int64_t syscall_dispatch(int64_t num, int64_t a1, int64_t a2, int64_t a3, int64_
 
 Add `#include "process.h"` to `kernel/syscall.c` if not already present (it already is, per the existing `spawn`/`wait_for_pid`/`current_task` calls).
 
-- [ ] **Step 4: Build and verify full regression**
+- [x] **Step 4: Build and verify full regression**
 
 Run: `make clean && make disk-image && make iso`, boot with `-cpu Nehalem` as in Task 1.
 Expected: milestone 5-8's exact full lifecycle reproduces unchanged (this task adds a new argument that is read but never acted on -- a complete no-op for existing behavior, same verification logic as the SSE plan's Task 2). Zero `FAILED`, zero exceptions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kernel/syscall_entry.asm kernel/syscall.c kernel/process.h
@@ -522,7 +522,7 @@ Restore `kernel/kernel.c`'s original `spawn("/BIN/PARENT.ELF")` + `parent_task` 
 
 Rebuild and boot again with `-cpu Nehalem`. Expected: milestone 5-8's exact full lifecycle reproduces, zero `FAILED`, zero exceptions.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add kernel/mm/paging.c kernel/mm/paging.h kernel/process.c kernel/process.h
@@ -1359,7 +1359,7 @@ git commit -m "Add exec() via address-space replacement"
 
 **Interfaces:** None new — this task only exercises everything built in Tasks 1-6 together.
 
-- [ ] **Step 1: Temporarily verify no leak across repeated fork()+exec()+exit cycles**
+- [x] **Step 1: Temporarily verify no leak across repeated fork()+exec()+exit cycles**
 
 As in Task 3's leak check, `wait_for_pid()` needs a valid `current` task, so this runs as a kernel thread, not inline in `kmain`. In `kernel/kernel.c`, add above `kmain` (or reuse/rename Task 3's now-removed `leak_test_thread` if it's still present in the file at this point -- it isn't, since Task 3's revert step removed it along with the rest of that temporary change):
 
@@ -1394,17 +1394,26 @@ Replace the four `spawn(...)` calls with:
 
 (Note: `FORK_TEST.ELF`'s own top-level task exits only after its internal `wait()` on the COW-forked-then-exec'd child completes, so `wait_for_pid(t->pid)` here waits on the whole chain.)
 
-- [ ] **Step 2: Build and verify**
+- [x] **Step 2: Build and verify**
 
 Run: `make clean && make disk-image && make iso`, boot with `-cpu Nehalem` as in Task 1.
 Expected: `[test] free_frames before fork loop=X` and `[test] free_frames after fork loop=X` print the exact same value -- proving that across 5 full fork()+COW-write+exec()+exit+reap cycles, every shared and unshared frame is correctly reclaimed (no leak from refcounting, page-table teardown, or the fork/exec address-space-replacement paths). All 5 iterations' `fork_test`/`exec_target` output appears correctly interleaved with no `FAILED`. Zero exceptions.
 
-- [ ] **Step 3: Revert the temporary loop and verify final regression**
+- [x] **Step 3: Revert the temporary loop and verify final regression**
 
 Restore `kernel/kernel.c`'s original four-process boot exactly. Confirm `git diff --stat kernel/kernel.c` prints nothing.
 
 Rebuild and boot with `-cpu Nehalem`. Expected: milestone 5-8's exact full lifecycle reproduces (bursty looper interleave, dense yielder interleave, `[parent] child exit code=42`), zero `FAILED`, zero exceptions.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
-Only if Step 1's temporary loop required any non-`kernel.c` fixes discovered during this pass (unlikely, but if so, commit them here with a message describing what the leak-loop test caught). If `kernel.c` is the only file touched and it's now fully reverted, there is nothing to commit for this task -- it exists purely as a verification gate.
+Nothing to commit: Step 1's loop caught no new problems, and
+`kernel.c` -- the only file it touched -- is fully reverted. Recorded
+here as a passed verification gate. (Original wording: only if Step 1's
+temporary loop required any non-`kernel.c` fixes discovered during this pass (unlikely, but if so, commit them here with a message describing what the leak-loop test caught).)
+
+**Result:** `free_frames` was `0x7baa` both before and after 5 full
+fork()+COW-write+exec()+exit+reap cycles -- no leak. All 5 iterations
+printed correct `fork_test`/`exec_target` output, and the reverted
+four-process boot reproduced milestone 5-8's lifecycle exactly
+(`[parent] child exit code=42`), with zero FAILED and zero exceptions.
