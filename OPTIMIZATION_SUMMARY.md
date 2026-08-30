@@ -186,7 +186,7 @@ A test that never fails proves nothing: see the Phase 5c note above.
 | Thread lookup (1M threads) | O(n) scan | O(1) hash | 1000x faster |
 | FD allocation (10k FDs) | N/A | O(1) hash | Enabled |
 | Vnode allocation | Fixed 64 | Unlimited | Unbounded |
-| Scheduler lock contention | Global queue | Per-CPU queue | Layout only; no second CPU yet |
+| Scheduler lock contention | Global queue | Per-CPU locked queue | Real: 4 CPUs, work stealing built but disabled |
 | FAT free-cluster scan | 1 read per cluster | 1 read per 256 clusters | Sector-at-a-time + hint |
 | Boot-time disk reads | 94 | 25 | 73% fewer |
 
@@ -228,33 +228,80 @@ A test that never fails proves nothing: see the Phase 5c note above.
 LOCK_RANK_PROCTABLE    (0) - Process table bucket locks
 LOCK_RANK_PROCESS      (1) - Process count lock, sig_lock
 LOCK_RANK_THREAD       (2) - Thread table bucket locks
-LOCK_RANK_MOUNTTABLE   (3) - Filesystem mount table
-LOCK_RANK_VNODEHASH    (4) - Vnode hash bucket chains
-LOCK_RANK_VNODE        (5) - Individual vnode operations
-LOCK_RANK_BLOCKDEV     (6) - Block device operations
-LOCK_RANK_DRIVER       (7) - Device driver operations
-LOCK_RANK_RUNQUEUE     (8) - Per-CPU ready queue (Phase 7)
-LOCK_RANK_FDTABLE      (9) - FD table bucket locks (kmalloc, rank 10,
-                             is legally taken beneath it)
-LOCK_RANK_HEAP        (10) - Memory allocator
-LOCK_RANK_PMM         (11) - Physical memory manager
-LOCK_RANK_SIGQUEUE    (12) - Signal queue allocation
+LOCK_RANK_MM           (3) - Per-process address space (vma + pml4)
+LOCK_RANK_MOUNTTABLE   (4) - Filesystem mount table
+LOCK_RANK_VNODEHASH    (5) - Vnode hash bucket chains
+LOCK_RANK_VNODE        (6) - Individual vnodes; vnode_slab pool
+LOCK_RANK_BLOCKDEV     (7) - Block device operations
+LOCK_RANK_DRIVER       (8) - Device driver operations (ata)
+LOCK_RANK_WAITQ        (9) - Per-wait-queue
+LOCK_RANK_RUNQUEUE    (10) - Per-CPU ready queue
+LOCK_RANK_FDTABLE     (11) - FD table bucket locks
+LOCK_RANK_HEAP        (12) - Memory allocator
+LOCK_RANK_PMM         (13) - Physical memory manager
+LOCK_RANK_SIGQUEUE    (14) - Signal queue allocation
+LOCK_RANK_TLB         (15) - TLB shootdown / deferred-free queue
 LOCK_RANK_SERIAL     (255) - Serial output (leaf lock)
+
+As of Phase 10 EVERY rank above names a lock that actually exists. Six
+of them did not before it.
 ```
 
 ---
 
-## Remaining Phases (9-12)
+### Phase 10: SMP & Concurrency
 
-### Phase 9: Source Reorganization (Not Yet Started)
-- Improve compilation modularity
-- Reduce header dependencies
-- Optimize parallel build times
+**Problem**: NeoOS ran on exactly one CPU, and the single-CPU assumption
+was load bearing. Six of the fourteen declared lock ranks named locks
+that DID NOT EXIST -- `mm/pmm.c`, `mm/heap.c`, `mm/paging.c`, `mm/vma.c`,
+`fs/vfs.c` and `ata.c` contained zero lock calls, and `waitq`'s
+head/tail were protected only by whichever guard the caller happened to
+hold. The rank table in this document described an aspiration, not the
+kernel.
 
-### Phase 10: SMP & Concurrency (Not Yet Started)
-- Multi-CPU support
-- Load balancing between CPUs
-- Inter-processor synchronization
+**Delivered**:
+1. CPU discovery from the MADT's Local APIC entries; `MAX_CPUS` 128.
+2. AP bringup via INIT-SIPI-SIPI into a trampoline at physical 0x8000
+   that adopts the boot page tables. Serialized, with a 100ms per-CPU
+   timeout: a CPU that never comes online is logged and skipped.
+3. All six missing lock layers, plus `waitq`, plus per-CPU TSS/GDT
+   descriptors and per-CPU IST1 stacks.
+4. Three IPIs: reschedule (0xF0), TLB shootdown (0xF1), panic-stop NMI.
+5. `sysconf`/`sched_getcpu` and `docs/abi-compatibility.md`.
+
+**Bugs this phase exposed and fixed** (all latent, all invisible on one
+CPU):
+- `vnode_slab`'s pool lock ranked EQUAL to the bucket locks it is taken
+  under -- an inversion the rank checker caught on the first boot.
+- `vma_selftest` ran before `heap_init`, allocating from an
+  uninitialised heap. Harmless while `class_pages` was BSS-zero; an
+  instant inversion once `heap_lock` existed.
+- `idle_entry` never called `schedule()`. The BSP's timer preempted it;
+  an AP, which gets no timer, would wake from a reschedule IPI and halt
+  again without picking up the work the IPI announced.
+- `thread_exit_self` pushed to `kzombies` with only `cli` for
+  protection, while `idle_entry` drains that list under `proc_lock`.
+- `syscall_init` writes per-CPU MSRs (STAR/LSTAR/SFMASK/EFER.SCE) but
+  ran only on the BSP. **Still unfixed at HEAD** -- see below.
+
+**Verified**: `[smp] parallel selftest passed, cpus=4` with an exact
+80,000-increment counter (no lost updates -- the first real proof that
+the spinlocks are mutually exclusive ACROSS CPUs), `[tlb] shootdown
+selftest passed, acks=3`, and all six userland suites. Every SMP
+assertion FAILS under `make test SMP_CPUS=1`.
+
+**Not delivered: work stealing.** Built and tested, but it destabilised
+the kernel and is disabled. See `docs/superpowers/specs/2026-08-30-work-stealing-problem.md`.
+
+---
+
+## Remaining Phases (11-12)
+
+### Phase 9: Source Reorganization (CLOSED -- already satisfied)
+`kernel/` is already split into `fs/ mm/ sched/ sync/`, which was this
+phase's entire content. Nothing was left to do.
+
+### Phase 10: SMP & Concurrency (Commits: bf7a7c8..af0345d) -- see below
 
 ### Phase 11: Cache Locality (Not Yet Started)
 - NUMA-aware thread placement
@@ -326,12 +373,18 @@ aff1cff Phase 3: Process hash table infrastructure (foundation for O(1) process 
 
 ## Next Steps
 
-**Phase 9 (Source Reorganization)** is next.
+**Work stealing** is the immediate open item, then Phase 11.
 
 Carried forward as known work, not yet done:
-- The scheduler's "per-CPU" ready queues (Phase 7) are per-CPU in
-  layout only. There is no queue lock and no second CPU; the claimed
-  `LOCK_RANK_RUNQUEUE` is unused. Real SMP is Phase 10.
+- **Work stealing is disabled.** Migrating a USER thread between CPUs
+  destabilises the kernel; the process paths still assume one CPU. See
+  `docs/superpowers/specs/2026-08-30-work-stealing-problem.md`.
+- **`syscall_init` programs per-CPU MSRs on the BSP only.** A user
+  thread woken onto an AP would SYSCALL into an unconfigured LSTAR.
+  Latent today because user threads rarely reach an AP; a real bug.
+- **`signal_do_continue` has a lost-wakeup race** with the stop path.
+- **The waitq selftest double-frees its sleeper** (`waitq.c`), freeing a
+  thread that is still executing its own exit path.
 - `proc_list` and `proc_lock` still shadow the hash table as a
   "transition" path, and `wait4` still scans `proc_list` linearly.
 - The block cache is write-through, so FAT entry updates still do a
