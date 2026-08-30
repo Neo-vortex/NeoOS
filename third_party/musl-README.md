@@ -1,30 +1,55 @@
-# Vendored musl
+# musl as a Git Submodule
 
 NeoOS's C library. See
 `docs/superpowers/specs/2026-08-28-musl-static-design.md` for why musl
 is used and how the syscall shim works.
+
+musl is maintained as a Git submodule to keep the kernel repository
+lightweight during large-scale optimization and refactoring work. The
+submodule preserves musl as an explicit external dependency without
+cluttering kernel-wide source searches and edits.
+
+## Initialization
+
+After cloning the NeoOS repository, initialize musl with:
+
+```sh
+git submodule update --init --recursive
+```
+
+Or, when cloning initially:
+
+```sh
+git clone --recurse-submodules <neoos-repo-url>
+```
 
 ## Provenance
 
 | | |
 |---|---|
 | Version | 1.2.5 |
-| Upstream | `https://musl.libc.org/releases/musl-1.2.5.tar.gz` |
+| Original source | `https://musl.libc.org/releases/musl-1.2.5.tar.gz` |
 | sha256 | `a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4` |
-| Vendored | 2026-08-28 |
+| Committed to repository | 2026-08-28 |
+| Converted to submodule | 2026-08-30 |
 
-**Integrity was checked by two independent downloads producing the same
-sha256. That is not a signature verification** — musl's release
-signature was not checked, because no trusted key was available in this
-environment. Anyone re-vendoring should verify against
-`https://musl.libc.org/` and the maintainer's key.
+**Integrity of the original source was checked by two independent
+downloads producing the same sha256. That is not a signature
+verification** — musl's release signature was not checked, because no
+trusted key was available in the vendoring environment. Anyone
+re-vendoring should verify against `https://musl.libc.org/` and the
+maintainer's key.
 
 ## Local modifications
 
-None yet. The syscall-number remap is added in a later task and will
-be listed here, kept as `third_party/neoos-syscall.patch` rather than
-applied silently, so `git diff` against pristine upstream stays
-meaningful.
+None in the submodule itself. Modifications to the kernel/syscall layer
+to support musl are applied in NeoOS kernel code, not by patching musl.
+Any musl-specific syscall remapping is kept as `third_party/neoos-syscall.patch`
+rather than applied silently, so `git diff` against the pristine upstream
+musl remains meaningful.
+
+Musl remains completely untouched during the kernel optimization
+milestone (2026-08 onward).
 
 ## Build
 
