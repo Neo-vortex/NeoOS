@@ -7,8 +7,7 @@ It boots on real hardware and under QEMU, brings up every CPU, runs
 user programs in ring 3 with their own address spaces, preempts and
 migrates them across cores, delivers POSIX signals to them, and lets
 them open files across four mounted filesystems. A static
-[musl](https://musl.libc.org/) binary runs on it unmodified. It is
-about 19,000 lines of kernel. There is no host test suite, because
+[musl](https://musl.libc.org/) binary runs on it unmodified. There is no host test suite, because
 there is no host — everything is verified by booting the thing and
 reading the serial log.
 
