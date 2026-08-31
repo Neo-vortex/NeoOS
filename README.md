@@ -181,8 +181,12 @@ Two things that will waste your time if nobody tells you:
       Linux ABI ioctl surface (`EVIOCGVERSION`, `EVIOCGID`, `EVIOCGNAME`,
       `EVIOCGBIT`, `EVIOCGKEY`, `EVIOCGRAB`); exclusive grab blocks TTY
 - [x] CMOS RTC
-- [x] Line-discipline TTY behind `/dev/CONSOLE` — canonical mode, echo,
-      editing, `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`
+- [x] Line-discipline TTY — an allocatable `struct tty` with a backend
+      vtable; the console is one instance, `/dev/ptmx` + `/dev/pts/N`
+      allocate more. Canonical mode, echo, editing,
+      `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`, `TIOCGPTN`
+- [x] Linear framebuffer (`/dev/fb0`, Multiboot2, `mmap` + fbdev
+      ioctls) with an in-kernel `fbcon` for boot/panic output
 - [ ] PCI enumeration, MSI, DMA
 - [ ] USB: xHCI, then EHCI/UHCI/OHCI, HID and mass storage
 - [ ] Audio: AC97, Intel HDA, SB16
