@@ -3,12 +3,14 @@
 A 64-bit operating system for x86 machines, written from scratch, one
 milestone at a time.
 
-It boots on real hardware and under QEMU, runs user programs in ring 3
-with their own address spaces, preempts them, delivers POSIX signals to
-them, and lets them open files across four mounted filesystems. It is
-about 9,400 lines of kernel. There is no host test suite, because there
-is no host — everything is verified by booting the thing and reading the
-serial log.
+It boots on real hardware and under QEMU, brings up every CPU, runs
+user programs in ring 3 with their own address spaces, preempts and
+migrates them across cores, delivers POSIX signals to them, and lets
+them open files across four mounted filesystems. A static
+[musl](https://musl.libc.org/) binary runs on it unmodified. It is
+about 19,000 lines of kernel. There is no host test suite, because
+there is no host — everything is verified by booting the thing and
+reading the serial log.
 
 The goal is not a teaching toy that stops at "hello world from ring 3".
 The goal is a system that a real C library runs on unmodified, that
@@ -20,9 +22,10 @@ handler.
 
 ## Why it looks the way it does
 
-**A real libc, not a homegrown one.** NeoOS is being pointed at
+**A real libc, not a homegrown one.** NeoOS runs
 [musl](https://musl.libc.org/) rather than growing its own `printf`
-forever. The kernel is *not* reshaped into Linux to make that work —
+forever — a musl-linked binary using printf, malloc, stat, opendir and
+stdio is part of the boot test. The kernel is *not* reshaped into Linux to make that work —
 instead it provides Linux-*shaped* primitives (`mmap`, `futex`,
 `clone`, signals) under its own syscall numbers, and a thin shim
 translates. The rule is **translation, never emulation**: the moment the
@@ -33,7 +36,9 @@ signal the primitive belongs in the kernel.
 every subsystem carries an in-kernel selftest that announces itself in
 the boot log, and every milestone ends with a userland program that
 proves the feature from the other side of the syscall boundary. A boot
-currently runs eleven selftests before it reaches userland.
+runs the full set of in-kernel selftests on four CPUs before it reaches
+userland, then `make test` requires roughly twenty userland and kernel
+markers to all report `PASSED`.
 
 **Bugs get written down.** Several comments in this codebase are longer
 than the code they explain, because they record something that cost
@@ -81,12 +86,17 @@ Two things that will waste your time if nobody tells you:
 - [x] Multiboot2 / GRUB, higher-half kernel at `0xFFFFFFFF80000000`
 - [x] GDT, IDT, TSS, ring 3 with `SYSCALL`/`SYSRET`
 - [x] ACPI table parsing, LAPIC and IOAPIC
-- [x] LAPIC timer, preemptive scheduling
+- [x] LAPIC timer on every CPU, preemptive scheduling
 - [x] SSE through SSE4.2 (required), MMX
 - [x] AVX and AVX2 via `XSAVE`/`XSAVEOPT`, runtime-detected so pre-AVX
       machines still boot
-- [x] Per-CPU data through `swapgs`, ready for a second CPU
-- [ ] SMP: AP bring-up, TLB shootdown IPIs
+- [x] Per-CPU data through `swapgs`
+- [x] SMP: AP bring-up via INIT-SIPI-SIPI, per-CPU GDT/TSS/IST, three
+      IPIs (reschedule, TLB shootdown, panic-stop NMI)
+- [x] Cross-CPU TLB shootdown
+- [x] Work stealing — threads migrate between cores, user threads
+      included
+- [x] CMOS RTC read once at boot, anchoring `CLOCK_REALTIME`
 - [ ] x2APIC
 
 ### Memory
@@ -109,6 +119,12 @@ Two things that will waste your time if nobody tells you:
 - [x] Spinlocks, sleeping mutexes, and a **lock-order checker** that
       panics on rank inversion — it has already caught a real one
 - [x] Wait queues with interruptible sleep
+- [x] Per-CPU ready queues, RCU for deferred cleanup
+- [x] `futex` (WAIT/WAKE), Linux-shaped, keyed by physical address
+- [x] Thread-local storage: `arch_prctl`, per-thread FS base restored on
+      every context switch, `__thread` survives migration
+- [x] SysV entry stack — argc, argv, envp, and an auxiliary vector
+- [ ] `clone`, so a real pthreads can sit on it
 - [ ] Scheduling classes (real-time / fair / idle), SMT-aware balancing
 
 ### Signals
@@ -125,10 +141,17 @@ Two things that will waste your time if nobody tells you:
 
 ### Filesystems
 
-- [x] VFS with a refcounted vnode cache and mount points
+- [x] VFS with a refcounted vnode cache, a slab vnode allocator, a
+      write-through block cache, and mount points
 - [x] FAT16 and FAT32, variant auto-detected from the volume
+- [x] VFAT long filenames (read and write), up to 255 characters
 - [x] `ramfs` and `devfs`
-- [x] `readdir`/`getdents`, `mount`/`umount` from userland
+- [x] Per-process working directory: `chdir`/`getcwd`, inherited by
+      `fork` and `spawn`
+- [x] `stat`/`lstat`/`fstat`/`newfstatat` with Linux's 144-byte
+      `struct stat`
+- [x] `getdents64` in Linux's record layout, `mount`/`umount` from
+      userland
 - [x] Standard streams are real `/dev/CONSOLE` vnodes, not special-cased
       integers
 - [ ] exFAT
@@ -137,36 +160,53 @@ Two things that will waste your time if nobody tells you:
 
 ### Userland
 
-- [x] `libneoos`, a small native C library
-- [x] 40 syscalls
-- [x] 16 test programs covering every subsystem
-- [ ] **musl libc, statically linked** — in progress
+- [x] `libneoos`, a small native C library for NeoOS-only calls
+- [x] **musl libc 1.2.5, statically linked** — a thin shim maps Linux's
+      syscall numbers onto NeoOS's; a musl binary using printf, malloc,
+      stat, opendir and stdio is part of the boot test
+- [x] ~66 syscalls, dispatched through a table
+- [x] 25+ test programs covering every subsystem
+- [x] Tier 0 of the coreutils-porting surface: `writev`/`readv`,
+      `ioctl`, `clock_gettime`, `nanosleep`, `set_tid_address`,
+      `exit_group`
 - [ ] Dynamic linking (musl's own `ldso`)
-- [ ] pthreads
-- [ ] `getrandom` backed by a real entropy pool
+- [ ] musl's own pthreads (blocked on `clone`)
+- [ ] `getrandom` backed by a real entropy pool — `AT_RANDOM` today is
+      derived, not random
 
 ### Drivers
 
 - [x] ATA PIO, serial, VGA text, PS/2 keyboard
+- [x] CMOS RTC
+- [x] Line-discipline TTY behind `/dev/CONSOLE` — canonical mode, echo,
+      editing, `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`
 - [ ] PCI enumeration, MSI, DMA
 - [ ] USB: xHCI, then EHCI/UHCI/OHCI, HID and mass storage
 - [ ] Audio: AC97, Intel HDA, SB16
 - [ ] Floppy (8237 ISA DMA)
 
-### IPC
+### IPC and networking
 
-- [ ] Pipes, semaphores, message ports
-- [ ] An MPI library on top of them
+- [x] Pipes (`pipe2`)
+- [x] POSIX semaphores, pthread mutexes and condition variables, on
+      `futex`, in `lib/`
+- [x] A loopback network stack: IPv4 and UDP with real checksums,
+      `AF_INET` datagram sockets
+- [x] An MPI-1 subset over those sockets
+- [ ] TCP, `select`/`poll`, `AF_UNIX`
 
 ## Where it's going
 
-Seventeen milestones are planned; fourteen have shipped. The current one
-brings up musl statically — memory mappings and demand paging landed,
-and the process startup ABI, `clone`, and the entropy pool are next.
+Twelve milestones ("phases") have shipped. The most recent brought a
+syscall table, `futex` with POSIX synchronisation on top, pipes,
+thread-local storage and the auxv, a loopback network stack with
+`AF_INET` sockets, and an MPI subset; the working tree adds musl, the
+`stat` family, the working directory, VFAT long names, a TTY and an RTC.
 
-After that: dynamic linking, full thread-local storage, SMP, scheduling
-classes, loadable kernel modules, PCI and AHCI, a block layer, exFAT,
-IPC, USB and audio. The full dependency reasoning lives in
+Next: `clone` and `clock_gettime`'s missing pieces (what musl's
+pthreads need), `select`/`poll`, TCP, then dynamic linking, loadable
+modules, PCI and AHCI, a block layer, exFAT, USB and audio. The full
+dependency reasoning lives in
 [`docs/superpowers/specs/2026-08-27-roadmap-architecture-design.md`](docs/superpowers/specs/2026-08-27-roadmap-architecture-design.md),
 which is worth reading before proposing changes — it records *why* the
 order is what it is, and which decisions are already settled.
@@ -187,15 +227,30 @@ Development happens directly on `main`.
 
 ```
 kernel/
-  mm/      physical allocator, paging, heap, address-space mappings
-  fs/      VFS, FAT16/32, ramfs, devfs
-  sched/   processes, threads, the scheduler
-  drivers  ATA, serial, VGA, keyboard, APIC, ACPI, PIT
+  arch/     x86-64 mechanics: GDT, IDT, ISRs, TSS, per-CPU blocks, MSRs,
+            and the assembly (context switch, trampolines)
+  dev/      drivers: ATA, serial, VGA, keyboard, LAPIC/IOAPIC, PIC, PIT,
+            ACPI, timer
+  fs/       VFS, FAT16/32, ramfs, devfs, the block cache, file objects
+  ipc/      signals, pipes, futex
+  mm/       physical allocator, paging, heap, address-space mappings
+  net/      loopback IPv4/UDP and the socket layer
+  sched/    processes, threads, the scheduler, fd and pid tables
+  smp/      AP bring-up, cross-CPU TLB shootdown
+  sync/     spinlocks with rank checking, wait queues, RCU
+  syscall/  the syscall surface, one file per domain
+  kernel.c  boot sequence; elf.c, errno.h alongside it
 lib/       libneoos: the native C library and its startup code
 userland/  test programs, one per subsystem
-third_party/musl/   vendored musl 1.2.5
-docs/      the standard library reference, specs, and plans
+third_party/musl/   vendored musl 1.2.5 (a submodule)
+third_party/shim/   the musl syscall shim: Linux numbers -> NeoOS's
+docs/      the standard library reference, ABI reports, specs, and plans
 ```
+
+Kernel includes are written relative to `kernel/` (`#include
+"sched/proc.h"`), not to the including file. `-Ikernel` makes that work,
+and it means moving a file between directories does not rewrite the
+includes of everything that uses it.
 
 ## License
 

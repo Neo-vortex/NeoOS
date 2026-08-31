@@ -42,14 +42,34 @@ maintainer's key.
 
 ## Local modifications
 
-None in the submodule itself. Modifications to the kernel/syscall layer
-to support musl are applied in NeoOS kernel code, not by patching musl.
-Any musl-specific syscall remapping is kept as `third_party/neoos-syscall.patch`
-rather than applied silently, so `git diff` against the pristine upstream
-musl remains meaningful.
+**The submodule is patched at build time by `third_party/shim/apply.sh`,
+which is run automatically by the `$(MUSL_LIB)` rule in the Makefile.**
+The real sources live in `third_party/shim/`; musl gets copies, and the
+originals are kept beside them as `*.orig` so the shim can be backed
+out. `apply.sh` is idempotent.
 
-Musl remains completely untouched during the kernel optimization
-milestone (2026-08 onward).
+| File in musl | Replaced by | Why |
+|---|---|---|
+| `arch/x86_64/syscall_arch.h` | `shim/syscall_arch.h` | funnels every C-level syscall through `__neoos_syscall` |
+| `src/internal/neoos_syscall.c` | `shim/neoos_syscall.c` | **new file** — the translator itself |
+| `src/thread/x86_64/syscall_cp.s` | `shim/syscall_cp.s` | cancellable calls (read/write/open/...) issue `syscall` themselves |
+| `src/thread/x86_64/__set_thread_area.s` | `shim/__set_thread_area.s` | `arch_prctl`, issued directly; without this musl cannot install a thread pointer and dies before `main` |
+| `src/thread/x86_64/__unmapself.s` | `shim/__unmapself.s` | `munmap`+`exit`, issued directly |
+| `src/thread/x86_64/clone.s` | `shim/clone.s` | NeoOS has no `clone`; Linux's number 56 is NeoOS's `lstat` |
+| `src/signal/x86_64/restore.s` | `shim/restore.s` | the signal restorer's `rt_sigreturn` |
+| `src/process/x86_64/vfork.s` | `shim/vfork.s` | `fork`, issued directly |
+
+The six assembly files matter as much as the header: each issues
+`syscall` ITSELF, so none of them is covered by `syscall_arch.h`.
+Leaving them alone does not produce a clean failure — Linux's number
+lands on whatever NeoOS call happens to share it.
+
+**`git diff` against upstream is therefore NOT clean once a build has
+run.** To restore the pristine checkout:
+
+```sh
+cd third_party/musl && git checkout -- . && git clean -fd
+```
 
 ## Build
 
