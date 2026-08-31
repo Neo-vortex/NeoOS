@@ -175,7 +175,11 @@ Two things that will waste your time if nobody tells you:
 
 ### Drivers
 
-- [x] ATA PIO, serial, VGA text, PS/2 keyboard
+- [x] ATA PIO, serial, VGA text
+- [x] PS/2 keyboard with Set-1 scancode decoder, modifier tracking
+- [x] Input subsystem — evdev character device `/dev/input/event0` with
+      Linux ABI ioctl surface (`EVIOCGVERSION`, `EVIOCGID`, `EVIOCGNAME`,
+      `EVIOCGBIT`, `EVIOCGKEY`, `EVIOCGRAB`); exclusive grab blocks TTY
 - [x] CMOS RTC
 - [x] Line-discipline TTY behind `/dev/CONSOLE` — canonical mode, echo,
       editing, `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`
@@ -196,17 +200,19 @@ Two things that will waste your time if nobody tells you:
 
 ## Where it's going
 
-Twelve milestones ("phases") have shipped. The most recent brought a
+Fourteen milestones ("phases") have shipped. The journey includes a
 syscall table, `futex` with POSIX synchronisation on top, pipes,
 thread-local storage and the auxv, a loopback network stack with
-`AF_INET` sockets, and an MPI subset; the working tree adds musl, the
-`stat` family, the working directory, VFAT long names, a TTY and an RTC.
+`AF_INET` sockets, an MPI subset, musl, the `stat` family, the working
+directory, VFAT long names, a TTY and an RTC, SMP with work stealing,
+and most recently an input subsystem with a PS/2 keyboard decoder and
+an evdev device.
 
 Next: `clone` and `clock_gettime`'s missing pieces (what musl's
 pthreads need), `select`/`poll`, TCP, then dynamic linking, loadable
 modules, PCI and AHCI, a block layer, exFAT, USB and audio. The full
 dependency reasoning lives in
-[`docs/superpowers/specs/2026-08-27-roadmap-architecture-design.md`](docs/superpowers/specs/2026-08-27-roadmap-architecture-design.md),
+[`docs/superpowers/specs/2026-08-31-post-smp-roadmap.md`](docs/superpowers/specs/2026-08-31-post-smp-roadmap.md),
 which is worth reading before proposing changes — it records *why* the
 order is what it is, and which decisions are already settled.
 
@@ -228,8 +234,8 @@ Development happens directly on `main`.
 kernel/
   arch/     x86-64 mechanics: GDT, IDT, ISRs, TSS, per-CPU blocks, MSRs,
             and the assembly (context switch, trampolines)
-  dev/      drivers: ATA, serial, VGA, keyboard, LAPIC/IOAPIC, PIC, PIT,
-            ACPI, timer
+  dev/      drivers: ATA, serial, VGA, PS/2 keyboard with input subsystem,
+            LAPIC/IOAPIC, PIC, PIT, ACPI, timer, TTY
   fs/       VFS, FAT16/32, ramfs, devfs, the block cache, file objects
   ipc/      signals, pipes, futex
   mm/       physical allocator, paging, heap, address-space mappings
