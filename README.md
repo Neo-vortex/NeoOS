@@ -185,6 +185,11 @@ Two things that will waste your time if nobody tells you:
       vtable; the console is one instance, `/dev/ptmx` + `/dev/pts/N`
       allocate more. Canonical mode, echo, editing,
       `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`, `TIOCGPTN`
+- [x] Six virtual terminals — `/dev/tty1..6`, each with its own grid,
+      scrollback and line discipline; `/dev/tty0` follows the active
+      one. `Alt+F1..F6` switches, `Shift+PageUp/Down` scrolls, and the
+      Linux `VT_*` / `KD*` ioctls work (minus the `VT_PROCESS`
+      handshake). The kernel log and the panic screen land on VT 1
 - [x] Linear framebuffer (`/dev/fb0`, Multiboot2, `mmap` + fbdev
       ioctls) behind a registered driver model: `fb_device` (vesafb)
       and `con_driver` (fbcon / vgacon / dummycon), chosen by a boot
