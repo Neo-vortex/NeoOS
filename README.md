@@ -187,6 +187,9 @@ Two things that will waste your time if nobody tells you:
       `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`, `TIOCGPTN`
 - [x] Linear framebuffer (`/dev/fb0`, Multiboot2, `mmap` + fbdev
       ioctls) with an in-kernel `fbcon` for boot/panic output
+- [x] `/SBIN/INIT` as PID 1: the kernel starts only init, which reads
+      `/ETC/INITTAB`, launches the workload, reaps orphans (reparented
+      to PID 1), and powers off via `reboot(2)`
 - [ ] PCI enumeration, MSI, DMA
 - [ ] USB: xHCI, then EHCI/UHCI/OHCI, HID and mass storage
 - [ ] Audio: AC97, Intel HDA, SB16
@@ -209,11 +212,13 @@ syscall table, `futex` with POSIX synchronisation on top, pipes,
 thread-local storage and the auxv, a loopback network stack with
 `AF_INET` sockets, an MPI subset, musl, the `stat` family, the working
 directory, VFAT long names, a TTY and an RTC, SMP with work stealing,
-and most recently an input subsystem with a PS/2 keyboard decoder and
-an evdev device.
+an input subsystem with a PS/2 keyboard decoder and an evdev device,
+and most recently a real `/SBIN/INIT` running as PID 1 from
+`/ETC/INITTAB`, with orphan reparenting and `reboot(2)`.
 
-Next: `clone` and `clock_gettime`'s missing pieces (what musl's
-pthreads need), `select`/`poll`, TCP, then dynamic linking, loadable
+Next: a userspace framebuffer terminal (xterm-ish VT + scrollback),
+`clone` and `clock_gettime`'s missing pieces (what musl's pthreads
+need), `select`/`poll`, TCP, then dynamic linking, loadable
 modules, PCI and AHCI, a block layer, exFAT, USB and audio. The full
 dependency reasoning lives in
 [`docs/superpowers/specs/2026-08-31-post-smp-roadmap.md`](docs/superpowers/specs/2026-08-31-post-smp-roadmap.md),
