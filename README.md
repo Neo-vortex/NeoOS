@@ -186,7 +186,12 @@ Two things that will waste your time if nobody tells you:
       allocate more. Canonical mode, echo, editing,
       `TCGETS`/`TCSETS`/`TIOCGWINSZ`, `SIGINT`/`SIGQUIT`, `TIOCGPTN`
 - [x] Linear framebuffer (`/dev/fb0`, Multiboot2, `mmap` + fbdev
-      ioctls) with an in-kernel `fbcon` for boot/panic output
+      ioctls) behind a registered driver model: `fb_device` (vesafb)
+      and `con_driver` (fbcon / vgacon / dummycon), chosen by a boot
+      probe. Drivers live under `kernel/drivers/`
+- [x] Boot banner: a butterfly-N logo (purple N, red wings) with the
+      kernel version + git rev, CPU brand string, core count, memory
+      and feature list
 - [x] `/SBIN/INIT` as PID 1: the kernel starts only init, which reads
       `/ETC/INITTAB`, launches the workload, reaps orphans (reparented
       to PID 1), and powers off via `reboot(2)`
