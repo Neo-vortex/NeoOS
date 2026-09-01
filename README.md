@@ -213,7 +213,8 @@ Two things that will waste your time if nobody tells you:
 - [x] A loopback network stack: IPv4 and UDP with real checksums,
       `AF_INET` datagram sockets
 - [x] An MPI-1 subset over those sockets
-- [ ] TCP, `select`/`poll`, `AF_UNIX`
+- [x] `poll` and `select` (M1a; the fd caps are being raised)
+- [ ] TCP, `AF_UNIX`
 
 ## Where it's going
 
@@ -226,10 +227,14 @@ an input subsystem with a PS/2 keyboard decoder and an evdev device,
 and most recently a real `/SBIN/INIT` running as PID 1 from
 `/ETC/INITTAB`, with orphan reparenting and `reboot(2)`.
 
-Next: a userspace framebuffer terminal (xterm-ish VT + scrollback),
-`clone` and `clock_gettime`'s missing pieces (what musl's pthreads
-need), `select`/`poll`, TCP, then dynamic linking, loadable
-modules, PCI and AHCI, a block layer, exFAT, USB and audio. The full
+Next is a concurrency-hardening and scaling track: instrumentation
+that makes rare SMP interleavings reproducible (a poisoned-free heap,
+per-rank lock hold-time histograms, a flakiness-reporting gauntlet),
+regression tests for the races the code's own comments already
+describe, and the removal of the fixed caps a real shell lands on —
+`SPAWN_MAX_ARGS 8`, `POLL_MAX_FDS 16`, a non-POSIX fd allocator, 16
+threads per process, no PID wraparound. Then ASLR, then an interactive
+BusyBox `ash` on the terminal, then dynamic linking. The full
 dependency reasoning lives in
 [`docs/superpowers/specs/2026-08-31-post-smp-roadmap.md`](docs/superpowers/specs/2026-08-31-post-smp-roadmap.md),
 which is worth reading before proposing changes — it records *why* the
