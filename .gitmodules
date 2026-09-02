@@ -4,3 +4,6 @@
 [submodule "third_party/busybox"]
 	path = third_party/busybox
 	url = https://git.busybox.net/busybox
+[submodule "ports/3d-ascii-viewer/upstream"]
+	path = ports/3d-ascii-viewer/upstream
+	url = https://github.com/autopawn/3d-ascii-viewer.git
