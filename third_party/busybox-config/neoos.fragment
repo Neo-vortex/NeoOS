@@ -54,6 +54,11 @@ CONFIG_ASH_EXPAND_PRMT=y
 CONFIG_ASH_RANDOM_SUPPORT=n
 CONFIG_ASH_IDLE_TIMEOUT=n
 CONFIG_ASH_BASH_COMPAT=y
+# $((...)). A shell without arithmetic is a poor shell, and its absence
+# is how bbsh first proved the shell was really executing commands: it
+# answered "support for $((arith)) is disabled", which is a response.
+CONFIG_FEATURE_SH_MATH=y
+CONFIG_FEATURE_SH_MATH_64=y
 CONFIG_FEATURE_EDITING=y
 CONFIG_FEATURE_EDITING_MAX_LEN=1024
 CONFIG_FEATURE_EDITING_HISTORY=64
