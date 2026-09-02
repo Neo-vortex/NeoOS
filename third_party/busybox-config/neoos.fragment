@@ -153,3 +153,71 @@ CONFIG_RESUME=n
 CONFIG_NSENTER=n
 CONFIG_UNSHARE=n
 CONFIG_SETPRIV=n
+
+# ---- network utilities ----------------------------------------------
+CONFIG_IFCONFIG=y
+CONFIG_INETD=n
+CONFIG_TC=y
+CONFIG_IP=y
+CONFIG_AR=y
+CONFIG_PING=y
+CONFIG_NETSTAT=y
+CONFIG_ROUTE=y
+CONFIG_DNSD=n
+CONFIG_UDHCPC=y
+CONFIG_UDHCPD=n
+
+# ---- file system utilities ------------------------------------------
+CONFIG_DF=y
+CONFIG_DU=y
+CONFIG_TAR=y
+CONFIG_GUNZIP=y
+CONFIG_GZIP=y
+CONFIG_BUNZIP2=y
+CONFIG_BZCAT=y
+CONFIG_UNCOMPRESS=y
+CONFIG_UNLZMA=y
+CONFIG_LZCAT=y
+CONFIG_LZMA=y
+CONFIG_UNXZ=y
+CONFIG_XZCAT=y
+CONFIG_ZCAT=y
+CONFIG_MKSWAP=y
+CONFIG_FDISK=y
+CONFIG_MOUNTPOINT=y
+CONFIG_FLOCK=y
+CONFIG_FALLOCATE=y
+
+# ---- editors and text processing ------------------------------------
+CONFIG_VI=y
+CONFIG_EDIT=y
+CONFIG_LESS=y
+CONFIG_MORE=y
+CONFIG_OPEN=y
+
+# ---- user/group utilities -------------------------------------------
+CONFIG_CHGRP=y
+CONFIG_CHOWN=y
+CONFIG_GROUPMEMBERSHIP=y
+CONFIG_ID=y
+CONFIG_LOGNAME=y
+CONFIG_USERS=y
+CONFIG_GROUP=y
+
+# ---- process monitoring ---------------------------------------------
+CONFIG_UPTIME=y
+CONFIG_W=y
+CONFIG_PS=y
+CONFIG_FREE=y
+CONFIG_DF=y
+
+# ---- login utilities ------------------------------------------------
+CONFIG_GETTY=y
+CONFIG_LOGIN=y
+CONFIG_LOGNAME=y
+CONFIG_LAST=y
+
+# ---- informational utilities ----------------------------------------
+CONFIG_HWCLOCK=y
+CONFIG_UDEV=y
+CONFIG_BLKID=y
