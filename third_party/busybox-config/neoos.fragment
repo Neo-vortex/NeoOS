@@ -45,9 +45,9 @@ CONFIG_ASH_INTERNAL_GLOB=y
 CONFIG_ASH_JOB_CONTROL=y
 CONFIG_ASH_ALIAS=y
 CONFIG_ASH_GETOPTS=y
-CONFIG_ASH_BUILTIN_ECHO=y
-CONFIG_ASH_BUILTIN_PRINTF=y
-CONFIG_ASH_BUILTIN_TEST=y
+CONFIG_ASH_ECHO=y
+CONFIG_ASH_PRINTF=y
+CONFIG_ASH_TEST=y
 CONFIG_ASH_CMDCMD=y
 CONFIG_ASH_OPTIMIZE_FOR_SIZE=y
 CONFIG_ASH_EXPAND_PRMT=y
@@ -155,16 +155,26 @@ CONFIG_UNSHARE=n
 CONFIG_SETPRIV=n
 
 # ---- network utilities ----------------------------------------------
-CONFIG_IFCONFIG=y
+#
+# All OFF, and not by preference: every one of these needs a Linux
+# kernel facility NeoOS does not have -- netlink, raw sockets, BPF,
+# /proc/net -- and musl does not ship the kernel headers they include,
+# so they fail to COMPILE rather than merely failing to work.
+# third_party/busybox-config/neoos.unbuildable records the reason for
+# each and refuses the configuration if one is turned back on.
+#
+# The network milestone (PCI -> NIC -> Ethernet/ARP -> ICMP -> TCP) is
+# what makes them possible; turn them on as the pieces they need land.
+CONFIG_IFCONFIG=n
 CONFIG_INETD=n
-CONFIG_TC=y
-CONFIG_IP=y
+CONFIG_TC=n
+CONFIG_IP=n
 CONFIG_AR=y
-CONFIG_PING=y
-CONFIG_NETSTAT=y
-CONFIG_ROUTE=y
+CONFIG_PING=n
+CONFIG_NETSTAT=n
+CONFIG_ROUTE=n
 CONFIG_DNSD=n
-CONFIG_UDHCPC=y
+CONFIG_UDHCPC=n
 CONFIG_UDHCPD=n
 
 # ---- file system utilities ------------------------------------------
@@ -190,34 +200,36 @@ CONFIG_FALLOCATE=y
 
 # ---- editors and text processing ------------------------------------
 CONFIG_VI=y
-CONFIG_EDIT=y
 CONFIG_LESS=y
 CONFIG_MORE=y
-CONFIG_OPEN=y
 
 # ---- user/group utilities -------------------------------------------
 CONFIG_CHGRP=y
 CONFIG_CHOWN=y
-CONFIG_GROUPMEMBERSHIP=y
+CONFIG_GROUPS=y
 CONFIG_ID=y
 CONFIG_LOGNAME=y
-CONFIG_USERS=y
-CONFIG_GROUP=y
+# users(1) and w(1) need FEATURE_UTMP, which is off: nothing on NeoOS
+# writes utmp records, so both would list an empty session table.
 
 # ---- process monitoring ---------------------------------------------
-CONFIG_UPTIME=y
-CONFIG_W=y
+#
+# free(1) and uptime(1) are off: both call sysinfo(2), and NeoOS has no
+# such syscall. musl declares it but there is nothing behind the
+# declaration here, so they fail to compile. Implementing sysinfo is a
+# small job -- uptime from the tick counter, memory from the pmm's own
+# counters -- and would bring both back.
+CONFIG_UPTIME=n
 CONFIG_PS=y
-CONFIG_FREE=y
+CONFIG_FREE=n
 CONFIG_DF=y
 
 # ---- login utilities ------------------------------------------------
 CONFIG_GETTY=y
 CONFIG_LOGIN=y
 CONFIG_LOGNAME=y
-CONFIG_LAST=y
+# last(1) needs FEATURE_WTMP, which is off, for the same reason.
 
 # ---- informational utilities ----------------------------------------
 CONFIG_HWCLOCK=y
-CONFIG_UDEV=y
 CONFIG_BLKID=y

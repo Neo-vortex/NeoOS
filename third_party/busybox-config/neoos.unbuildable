@@ -1,0 +1,25 @@
+# Applets that CANNOT be built on NeoOS today, and why.
+#
+# Each needs a Linux kernel facility that does not exist here, and
+# musl deliberately does not ship Linux kernel headers -- so these fail
+# at COMPILE time, deep inside busybox, with an error nowhere near the
+# option that caused it. Listing them here turns that into an immediate
+# refusal naming the option.
+#
+# This is not a permanent list. The network milestone (PCI -> NIC ->
+# Ethernet/ARP -> ICMP -> TCP) is what makes most of it buildable; the
+# entry says what each is waiting for.
+
+CONFIG_IP          netlink (linux/netlink.h, if_arp.h, asm/types.h)
+CONFIG_TC          netlink, and traffic control NeoOS has no concept of
+CONFIG_IFCONFIG    linux/if.h and SIOCGIFCONF ioctls on a real interface
+CONFIG_ROUTE       kernel routing table ioctls
+CONFIG_NETSTAT     /proc/net/*, which NeoOS's procfs does not provide
+CONFIG_PING        raw sockets (SOCK_RAW) and ICMP
+CONFIG_UDHCPC      linux/filter.h (BPF) and raw sockets
+CONFIG_UDHCPD      linux/filter.h (BPF) and raw sockets
+CONFIG_ARPING      raw sockets
+CONFIG_BRCTL       bridge ioctls
+CONFIG_TRACEROUTE  raw sockets
+CONFIG_FREE        sysinfo(2), which NeoOS has no syscall for
+CONFIG_UPTIME      sysinfo(2), which NeoOS has no syscall for

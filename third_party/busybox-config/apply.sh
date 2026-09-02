@@ -4,9 +4,46 @@
 # Mirrors third_party/shim/apply.sh: the submodule stays a pristine
 # upstream checkout, and everything NeoOS-specific lives here.
 #
-# allnoconfig + fragment + olddefconfig, rather than a checked-in
-# .config, so a BusyBox version bump takes upstream's default for any
-# option the fragment does not name instead of silently dropping it.
+# allnoconfig, then the fragment over the top, then `oldconfig` to
+# resolve whatever the fragment made newly reachable.
+#
+# ---------------------------------------------------------------------
+# Why this script is defensive, in three parts, each a real failure:
+#
+# 1. The resolve step used to be `silentoldconfig`, which REFUSES to
+#    choose when input is redirected rather than taking the default:
+#
+#        Maximum screen width (FEATURE_VI_MAX_LEN) [4096] (NEW) aborted!
+#        Console input/output is redirected. Run 'make oldconfig'
+#
+#    It worked until the fragment grew enough to make a numeric symbol
+#    newly reachable -- adding CONFIG_VI did it. `oldconfig` is the
+#    command that message names, and it answers blank input with each
+#    symbol's default.
+#
+# 2. When that aborted, `set -e` left a HALF-WRITTEN .config behind, and
+#    busybox's own make then completed it by taking defaults for
+#    everything unresolved -- pulling in udhcpc, which needs
+#    <linux/filter.h> and cannot build here. That is why `make shell`
+#    failed intermittently and with an error nowhere near the cause. The
+#    config is built on a copy now and installed only on success; any
+#    failure removes it entirely, so the next run starts clean rather
+#    than inheriting a broken one.
+#
+# 3. A fragment key that is not an upstream symbol is IGNORED by kconfig
+#    with a warning lost in the build output. Renames had silently
+#    stopped taking effect that way. They now fail the build.
+#
+# Two alternatives were tried and rejected, both worth recording:
+#
+#   - `yes n | make oldconfig` HANGS. `n` is not a valid answer for a
+#     numeric symbol, so kconfig asks the same question forever.
+#   - `make allnoconfig KCONFIG_ALLCONFIG=<file>` is exactly the right
+#     mechanism on newer kconfigs, but not on this one:
+#     scripts/kconfig/conf.c reads the file and then runs its
+#     set-everything-to-no pass TWICE, deliberately, to defeat `select`
+#     -- so the file's values are wiped and CONFIG_ASH comes out unset.
+# ---------------------------------------------------------------------
 set -e
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -15,77 +52,63 @@ musl="$here/../musl"
 
 [ -f "$bb/Makefile" ] || { echo "apply.sh: $bb is not a busybox checkout" >&2; exit 1; }
 
+# Any failure past this point leaves NO .config, rather than a partial
+# one that the next build would silently complete with upstream
+# defaults. Losing the file costs one reconfigure; keeping a broken one
+# costs an afternoon.
+cleanup() {
+    status=$?
+    if [ $status -ne 0 ]; then
+        rm -f "$bb/.config"
+        echo "apply.sh: failed; removed .config so the next run starts clean" >&2
+    fi
+    exit $status
+}
+trap cleanup EXIT
+
 cflags="-nostdinc -isystem $musl/include -isystem $musl/arch/x86_64"
 cflags="$cflags -isystem $musl/arch/generic -isystem $musl/obj/include"
 cflags="$cflags -mcmodel=large -fno-pic -mno-red-zone -fno-stack-protector"
 cflags="$cflags -ftls-model=local-exec -Wno-error"
 
-# Linked at the userland convention base by userland/user.ld, like every
-# other NeoOS program, and with musl's crt1.o rather than a host one.
-#
-# crt1.o has to be named here because busybox's own link (scripts/trylink)
-# never adds a startup file: with -nostdlib and no crt1, the only thing
-# defining _start is absent, --gc-sections then finds nothing reachable
-# from the entry point, and the link "succeeds" with a 496-byte ELF that
-# has no program headers at all. That is what the first attempt produced.
 # Everything that must reach ONLY the final link is written as a -Wl,
 # option, deliberately. busybox's ld_flags is
 #     $(filter-out -Wl$(comma)%, $(LDFLAGS) $(EXTRA_LDFLAGS))
 # so EXTRA_LDFLAGS reaches every `ld -r` partial link too -- and a
-# partial link that is handed the linker script and crt1.o produces a
-# fully LINKED applets/built-in.o carrying its own _start, which then
-# collides with crt1.o's at the real link. The -Wl, form is filtered out
-# of the partial links and forwarded by gcc at the final one.
+# partial link handed the linker script and crt1.o produces a fully
+# LINKED applets/built-in.o carrying its own _start, colliding with
+# crt1.o's at the real link.
+#
+# crt1.o has to be named at all because busybox's own link never adds a
+# startup file: with -nostdlib and no crt1, nothing defines _start,
+# --gc-sections finds nothing reachable, and the link "succeeds" with a
+# 496-byte ELF that has no program headers.
 ldflags="-nostdlib -static -Wl,-z,noexecstack"
 ldflags="$ldflags -Wl,-T,$here/../../userland/user.ld"
 ldflags="$ldflags -Wl,$musl/lib/crt1.o -L$musl/lib"
 
 cd "$bb"
 make allnoconfig >/dev/null
+python3 "$here/setconfig.py" apply .config "$here/neoos.fragment" "$cflags" "$ldflags"
+yes "" | make oldconfig >/dev/null 2>&1
 
-# Apply the fragment: each "CONFIG_X=y" or "CONFIG_X=n" replaces
-# whatever allnoconfig chose.
-python3 - "$here/neoos.fragment" <<'PYEOF'
-import re, sys
-frag = sys.argv[1]
-cfg = open('.config').read()
-for line in open(frag):
-    line = line.strip()
-    if not line or line.startswith('#'):
-        continue
-    key, _, val = line.partition('=')
-    if val == 'n':
-        repl = '# %s is not set' % key
-    else:
-        repl = '%s=%s' % (key, val)
-    if re.search(r'^%s=' % re.escape(key), cfg, re.M):
-        cfg = re.sub(r'^%s=.*$' % re.escape(key), repl.replace('\\', '\\\\'), cfg, count=1, flags=re.M)
-    elif re.search(r'^# %s is not set$' % re.escape(key), cfg, re.M):
-        cfg = re.sub(r'^# %s is not set$' % re.escape(key), repl.replace('\\', '\\\\'), cfg, count=1, flags=re.M)
-    else:
-        cfg += repl + '\n'
-open('.config', 'w').write(cfg)
-PYEOF
+# The set of symbols upstream actually defines, for the check below.
+# Config.in files are generated from Config.src, so this runs after
+# allnoconfig rather than before it.
+grep -rhoE "^config [A-Za-z0-9_]+" Config.in */Config.in */*/Config.in 2>/dev/null \
+    | awk '{print $2}' | sort -u > .neoos-symbols
 
-# The two settings that carry paths have to be written here rather than
-# in the fragment, since they depend on where the tree lives.
-python3 - "$cflags" "$ldflags" <<'PYEOF'
-import re, sys
-cflags, ldflags = sys.argv[1], sys.argv[2]
-cfg = open('.config').read()
-for key, val in (('CONFIG_EXTRA_CFLAGS', cflags), ('CONFIG_EXTRA_LDFLAGS', ldflags),
-                 # -nostdlib also drops the implicit -lc/-lgcc.
-                 ('CONFIG_EXTRA_LDLIBS', 'c gcc')):
-    line = '%s="%s"' % (key, val)
-    if re.search(r'^%s=' % key, cfg, re.M):
-        cfg = re.sub(r'^%s=.*$' % key, line.replace('\\', '\\\\'), cfg, count=1, flags=re.M)
-    else:
-        cfg += line + '\n'
-open('.config', 'w').write(cfg)
-PYEOF
+python3 "$here/setconfig.py" verify .config "$here/neoos.fragment" \
+    .neoos-symbols "$here/neoos.unbuildable"
 
-# BusyBox 1.37 has no olddefconfig target; silentoldconfig with an
-# empty stdin takes the default for every unresolved symbol, which is
-# the same thing.
-yes "" | make silentoldconfig >/dev/null 2>&1
+# The handful this port cannot do without. Checked by name so that a
+# dependency change upstream fails here, loudly, rather than as a
+# missing applet noticed days later.
+for want in CONFIG_ASH CONFIG_SH_IS_ASH CONFIG_STATIC CONFIG_LS CONFIG_CAT; do
+    grep -q "^$want=y" .config || {
+        echo "apply.sh: $want did not survive configuration" >&2
+        exit 1
+    }
+done
+
 echo "busybox-config: .config written ($(grep -c '^CONFIG_.*=y' .config) options on)"
