@@ -80,3 +80,169 @@ At the end of each milestone, refresh `docs/abi-compatibility.md`: what
 of the Linux ABI is implemented, what is stubbed, what diverges and
 why, and what a real ported application would still hit. If that file
 does not exist yet, the milestone that first needs it creates it.
+
+## GitHub Organization (2026-09-05 Restructuring)
+
+As of 2026-09-05, restructuring NeoOS into a distributed GitHub
+organization is **in progress**, tracked in
+`docs/superpowers/plans/2026-09-05-github-org-restructuring-completion.md`.
+This repo remains the primary development repo until that plan's
+cutover task lands. The section below describes the target end state,
+not current fact — check the plan file for what's actually done.
+
+### Organization Structure
+
+**Organization:** https://github.com/NeoOSOrganization
+
+**Repositories:**
+1. **neoos-kernel** — x86_64 OS kernel (standalone build)
+   - Provides: kernel binary + cross-compiler toolchain + syscall shim
+   - Build: `make test` (runs regression suite in QEMU)
+   - Key files: kernel/, third_party/shim/, toolchain/
+
+2. **neoos-musl** — musl libc with NeoOS syscall shim integration
+   - Provides: libc.a + headers (with NeoOS syscall translation)
+   - Build: `make KERNEL_SHIM_DIR=../neoos-kernel/third_party/shim`
+   - Key files: upstream/ (submodule), build.sh, Makefile
+
+3. **neoos-busybox** — BusyBox port (shell + utilities)
+   - Provides: busybox.nex (static binary, 1.5MB)
+   - Build: `make MUSL_DIR=../neoos-musl/build-output`
+   - Key files: upstream/ (submodule), smoke-test.sh
+
+4. **neoos-3d-ascii-viewer** — 3D ASCII viewer port
+   - Provides: 3d-ascii-viewer.nex (static binary, 400KB)
+   - Build: `make MUSL_DIR=../neoos-musl/build-output`
+   - Includes: ncurses-shim/ (terminal emulation layer)
+
+5. **neoos-os-builder** — OS image assembly and orchestration
+   - Provides: bootable ISO + disk images
+   - Build: `make all` (kernel + musl + ports → ISO)
+   - Integration: `make test` boots in QEMU
+
+6. **neoos-docs** — Docusaurus documentation site
+   - Deployed to: https://neoos.github.io (GitHub Pages)
+   - Includes: Getting started, architecture, porting guide
+
+### Teams & Access Control
+
+- **kernel-maintainers** — Admin on kernel, maintain on musl
+- **port-maintainers** — Maintain on busybox, 3d-viewer, future ports
+- **docs-maintainers** — Maintain on docs site
+
+User: neo-vortex (owner, all teams)
+
+### Build Dependency Chain
+
+```
+Phase 1: neoos-kernel
+├─ Builds: x86_64-elf toolchain + kernel binary
+└─ Exports: third_party/shim/ (syscall translation layer)
+
+Phase 2: neoos-musl
+├─ Consumes: kernel shim from ../neoos-kernel/third_party/shim/
+├─ Builds: libc.a + headers (static)
+└─ Exports: build-output/ (ready to link)
+
+Phase 3: Ports (can build in parallel)
+├─ neoos-busybox: `make MUSL_DIR=../neoos-musl/build-output`
+├─ neoos-3d-ascii-viewer: `make MUSL_DIR=../neoos-musl/build-output`
+└─ (future ports follow same contract)
+
+Phase 4: neoos-os-builder
+├─ Orchestrates: kernel + musl + ports
+├─ Produces: ISO + disk.img
+└─ Validates: `make test` boots in QEMU
+```
+
+### Build Contract
+
+Every component follows a strict interface:
+
+1. **Accept MUSL_DIR parameter** (ports only)
+   ```bash
+   make MUSL_DIR=../neoos-musl/build-output
+   ```
+
+2. **Produce static binary**
+   ```bash
+   file build/*.nex
+   # Output: ELF 64-bit LSB executable, x86-64, statically linked
+   ```
+
+3. **Support smoke tests**
+   ```bash
+   make smoke-test
+   # Validates: ELF format, static linking, executable
+   ```
+
+4. **Support clean**
+   ```bash
+   make clean
+   # Removes all build artifacts
+   ```
+
+### Quick Start (After Restructuring)
+
+```bash
+# Clone all repos (in parallel directories)
+git clone https://github.com/NeoOSOrganization/neoos-kernel ../neoos-kernel
+git clone https://github.com/NeoOSOrganization/neoos-musl ../neoos-musl
+git clone https://github.com/NeoOSOrganization/neoos-busybox ../neoos-busybox
+git clone https://github.com/NeoOSOrganization/neoos-3d-ascii-viewer ../neoos-3d-ascii-viewer
+git clone https://github.com/NeoOSOrganization/neoos-os-builder
+
+# Build complete OS image (3-4 minutes)
+cd neoos-os-builder
+make all
+
+# Boot in QEMU
+./build/qemu-run.sh
+```
+
+### Common Workflows
+
+#### Kernel Development
+```bash
+cd neoos-kernel
+./toolchain/build.sh      # One-time: build cross-compiler
+make                      # Build kernel
+make test                 # Run regression tests in QEMU
+```
+
+#### Port Development
+```bash
+cd neoos-busybox
+git submodule update --init upstream
+make MUSL_DIR=../neoos-musl/build-output
+make smoke-test
+```
+
+#### Adding New Port
+1. Create repository in organization
+2. Add Makefile following busybox/3d-viewer template
+3. Link against musl: `MUSL_DIR=../neoos-musl/build-output`
+4. Include smoke-test.sh validation
+5. Update cross-links in README
+
+### Documentation
+
+- **Organization:** https://github.com/NeoOSOrganization
+- **Main Site:** https://neoos.github.io (GitHub Pages, Docusaurus)
+- **Phase Plans:** docs/superpowers/plans/2026-09-05-phase*.md
+- **Phase Completions:** docs/superpowers/plans/2026-09-05-*-completion.md
+
+### Key Principles
+
+1. **Standalone Builds** — Each repo builds independently
+2. **Clear Contracts** — All components follow same interface
+3. **Pristine Upstream** — Third-party code in submodules, never edited
+4. **Linux ABI** — Syscalls match Linux shapes/semantics (not numbers)
+5. **Static Linking** — No dynamic dependencies (simpler testing)
+
+### Troubleshooting
+
+- **"undefined reference"** → Run `cd neoos-musl && make` first
+- **"Kernel shim not found"** → Clone neoos-kernel
+- **QEMU boot "FAILED"** → Check `build/qemu.log` for regression
+- **Port link errors** → Ensure musl built with correct MUSL_DIR
