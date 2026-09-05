@@ -393,7 +393,8 @@
       }
     ],
     "required_markers": [
-      "[threadmany] ALL PASSED"
+      "[threadmany] ALL PASSED",
+      "[smp] steal selftest passed"
     ]
   },
   {

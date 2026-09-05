@@ -81,8 +81,15 @@ def main():
 
             abs_path = os.path.abspath(os.path.join(d, fname))
             symbol = "".join(c if c.isalnum() else "_" for c in abs_path)
-            safe_obj_name = "".join(c if c.isalnum() else "_" for c in fname)
-            obj_path = os.path.join(obj_dir, safe_obj_name + ".o")
+            # Keyed by the full mangled symbol, not just the basename:
+            # the same filename (e.g. "looper.nex") can legitimately
+            # appear in two different EMBED_DIRS (a boot-critical copy
+            # in neoos-kernel itself, a regression-suite copy in
+            # neoos-kernel-tests-common) -- basename-only collided,
+            # silently overwriting one object file with the other's
+            # and producing an undefined-reference/multiple-definition
+            # link failure instead of two independent table entries.
+            obj_path = os.path.join(obj_dir, symbol + ".o")
 
             ld = os.environ.get("LD", "x86_64-elf-ld")
             subprocess.run(

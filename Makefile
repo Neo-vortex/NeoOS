@@ -1086,6 +1086,19 @@ BOOT_MARKER  ?= NeoOS: interrupts enabled, starting scheduler
 # third_party/busybox-config/busybox.test.json. This is what makes a
 # bare `make test` (no test suite, no BusyBox) require a SMALLER set --
 # see docs/superpowers/specs/2026-09-05-embedded-test-and-app-architecture.md.
+#
+# One exception moved the OTHER direction: "[smp] steal selftest
+# passed" prints from kernel code (smp_selftest.c) and needs no test
+# binary of its own -- it spawns its own six LOOPERs -- but it only
+# actually COMPLETES if the boot stays alive long enough for them to
+# migrate, which in practice means "the full test suite's ~50
+# background spawns are keeping init alive." A boot with nothing else
+# in the inittab (term's single `wait` entry) exits before the async
+# check ever fires. So this one lives in userland/tests.manifest.json
+# (attached to "thrdmany") instead of here -- it needs test-suite
+# PRESENCE, not a test-suite BINARY, so it doesn't fit either category
+# perfectly, but this is the side that keeps a truly minimal
+# `neoos-kernel` build honest about what it can guarantee alone.
 CORE_REQUIRED_MARKERS := \
 	"[pci] ALL PASSED" \
 	"[virtio-net] ALL PASSED" \
@@ -1096,7 +1109,6 @@ CORE_REQUIRED_MARKERS := \
 	"[dns] ALL PASSED" \
 	"[tcp] ALL PASSED" \
 	"[smp] local timer selftest passed" \
-	"[smp] steal selftest passed" \
 	"[term] render ALL PASSED" \
 	"[init] all entries exited -- powering off" \
 	"[devfs] selftest passed" \
@@ -1125,8 +1137,22 @@ REQUIRED_MARKERS = $(CORE_REQUIRED_MARKERS) $(shell sed 's/.*/"&"/' $(BUILD_DIR)
 # reports a failure that has nothing to do with the change under test.
 # Rebuilding the images makes each test run start from a known state.
 
+# embedfs-obj/ is excluded: it's a cache gen-embedfs.py manages itself
+# (each *.o's name matches its source .nex, entries are overwritten on
+# every real regeneration, and a stale leftover is harmless since the
+# link step only uses whatever embedfs-objs.txt currently lists). It
+# must NOT be swept here -- doing so once relied on an accident to
+# self-heal: deleting lib/*.o forced libneoos.a to rebuild, which
+# forced the boot-critical .nex files to rebuild, which forced
+# embedfs_table.c (and so embedfs-obj/) to regenerate too. That chain
+# only exists because this repo builds lib/ in-tree; a standalone
+# neoos-kernel build (external LIBNEOOS_DIR, untouched by this rule)
+# has no such chain, and deleting embedfs-obj/ under it produced a
+# straight link failure: NEX_EMBED_boot's own .nex files were already
+# up to date, so nothing re-ran gen-embedfs.py to replace what was
+# just deleted.
 clean-kernel:
-	mkdir -p $(BUILD_DIR) && find $(BUILD_DIR) -name '*.o' -delete
+	mkdir -p $(BUILD_DIR) && find $(BUILD_DIR) -name '*.o' -not -path '*/embedfs-obj/*' -delete
 
 # ---- terminal font -------------------------------------------------
 #
