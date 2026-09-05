@@ -10,6 +10,17 @@
 # "_test" name -- used for a large bundle of tests sharing one file
 # instead of one <name>.test.json per binary.
 #
+# Directory and bundle-entry ORDER matters: boot_entries chain via
+# "after" anchors (tools/apply-inittab-patch.py resolves each against
+# whatever's already been placed), so a later directory's entries can
+# anchor into an earlier directory's, and a bundle's entries are
+# collected in the bundle file's own array order, NOT alphabetically by
+# filename -- alphabetical would scramble a hand-tuned chain (e.g.
+# "looper" would sort before "parent" even though it must anchor onto
+# it). Pass directories on the command line in the order their anchors
+# require (boot-critical apps, then the test suite, then anything that
+# anchors into the test suite, like BusyBox).
+#
 # Outputs, alongside <output.c>:
 #   embedfs-obj/*.o         one ld -r -b binary object per embedded file
 #   embedfs-objs.txt        space-separated list of those object paths
@@ -21,27 +32,19 @@ import subprocess
 import sys
 
 
-def load_manifest_bundle(d):
-    bundle_by_test = {}
-    for fname in os.listdir(d):
+def load_manifest_bundle_ordered(dirpath):
+    """Returns (dict by _test, list in file-declared order)."""
+    by_test = {}
+    ordered = []
+    for fname in sorted(os.listdir(dirpath)):
         if not fname.endswith(".manifest.json"):
             continue
-        with open(os.path.join(d, fname)) as f:
+        with open(os.path.join(dirpath, fname)) as f:
             for entry in json.load(f):
                 if "_test" in entry:
-                    bundle_by_test[entry["_test"]] = entry
-    return bundle_by_test
-
-
-def manifest_for(d, fname, bundle):
-    base = fname[:-len(".nex")]
-    single = os.path.join(d, base + ".test.json")
-    if os.path.exists(single):
-        with open(single) as f:
-            return json.load(f)
-    if base in bundle:
-        return bundle[base]
-    return {}
+                    by_test[entry["_test"]] = entry
+                    ordered.append(entry)
+    return by_test, ordered
 
 
 def main():
@@ -51,18 +54,29 @@ def main():
     obj_dir = os.path.join(out_dir, "embedfs-obj")
     os.makedirs(obj_dir, exist_ok=True)
 
-    entries = []       # (category, name, symbol)
-    boot_entries = []
+    entries = []       # (category, name, symbol, obj_path) -- order doesn't matter
+    boot_entries = []  # order DOES matter -- anchors chain against it
     markers = []
 
     for d in dirs:
         if not d or not os.path.isdir(d):
             continue
-        bundle = load_manifest_bundle(d)
-        for fname in sorted(os.listdir(d)):
-            if not fname.endswith(".nex"):
-                continue
-            manifest = manifest_for(d, fname, bundle)
+        bundle_by_test, bundle_ordered = load_manifest_bundle_ordered(d)
+        nex_files = sorted(f for f in os.listdir(d) if f.endswith(".nex"))
+        consumed_by_bundle = set()
+
+        # 1. Embed every .nex file and add its table row (order-independent).
+        for fname in nex_files:
+            base = fname[:-len(".nex")]
+            single_path = os.path.join(d, base + ".test.json")
+            if os.path.exists(single_path):
+                with open(single_path) as f:
+                    manifest = json.load(f)
+            elif base in bundle_by_test:
+                manifest = bundle_by_test[base]
+                consumed_by_bundle.add(base)
+            else:
+                manifest = {}
             category = manifest.get("category", "tests")
 
             abs_path = os.path.abspath(os.path.join(d, fname))
@@ -75,8 +89,24 @@ def main():
                 [ld, "-r", "-b", "binary", "-o", obj_path, abs_path],
                 check=True,
             )
-
             entries.append((category, fname, symbol, obj_path))
+
+        # 2. Collect boot_entries/markers in a STABLE, anchor-safe order:
+        #    the bundle's own declared order first (this is what preserves
+        #    the hand-tuned chain), then any single <name>.test.json files
+        #    for names not already covered by the bundle, alphabetically.
+        for manifest in bundle_ordered:
+            boot_entries.extend(manifest.get("boot_entries", []))
+            markers.extend(manifest.get("required_markers", []))
+        for fname in nex_files:
+            base = fname[:-len(".nex")]
+            if base in consumed_by_bundle:
+                continue
+            single_path = os.path.join(d, base + ".test.json")
+            if not os.path.exists(single_path):
+                continue
+            with open(single_path) as f:
+                manifest = json.load(f)
             boot_entries.extend(manifest.get("boot_entries", []))
             markers.extend(manifest.get("required_markers", []))
 

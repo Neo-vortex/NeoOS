@@ -157,8 +157,261 @@ $(DISK_SRC)/nex-embed-boot/nsh.nex: $(USERLAND_BUILD)/NSH.ELF userland/boot-apps
 	./tools/nexify.sh $(USERLAND_BUILD)/NSH.ELF $@
 	cp userland/boot-apps/nsh.test.json $(DISK_SRC)/nex-embed-boot/
 
+# ---- embedded test suite -------------------------------------------
+#
+# Every kernel-native regression test, embedded the same way as the
+# boot-critical apps (Task 2) -- not on the FAT disk at all, so a test
+# that exercises the VFS/FAT layer doesn't depend on it just to START
+# running. See docs/superpowers/specs/
+# 2026-09-05-embedded-test-and-app-architecture.md.
+NEX_EMBED_TESTS_DIR := $(BUILD_DIR)/nex-embed-tests
+
+$(NEX_EMBED_TESTS_DIR)/spin.nex: $(USERLAND_BUILD)/SPIN.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/SPIN.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/child.nex: $(USERLAND_BUILD)/CHILD.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/CHILD.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/parent.nex: $(USERLAND_BUILD)/PARENT.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/PARENT.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/looper.nex: $(USERLAND_BUILD)/LOOPER.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/LOOPER.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/yielder.nex: $(USERLAND_BUILD)/YIELDER.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/YIELDER.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/faulter.nex: $(USERLAND_BUILD)/FAULTER.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FAULTER.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/fileio.nex: $(USERLAND_BUILD)/FILEIO.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FILEIO.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/sse_test.nex: $(USERLAND_BUILD)/SSE_TEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/SSE_TEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/forktest.nex: $(USERLAND_BUILD)/FORKTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FORKTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/exectarg.nex: $(USERLAND_BUILD)/EXECTARG.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/EXECTARG.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/mounttst.nex: $(USERLAND_BUILD)/MOUNTTST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/MOUNTTST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/vfstest.nex: $(USERLAND_BUILD)/VFSTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/VFSTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/vttest.nex: $(USERLAND_BUILD)/VTTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/VTTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/activettytest.nex: $(USERLAND_BUILD)/ACTIVETTYTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/ACTIVETTYTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/vtswitchtest.nex: $(USERLAND_BUILD)/VTSWITCHTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/VTSWITCHTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/termchild.nex: $(USERLAND_BUILD)/TERMCHILD.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TERMCHILD.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/thrdtest.nex: $(USERLAND_BUILD)/THRDTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/THRDTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/sigtest.nex: $(USERLAND_BUILD)/SIGTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/SIGTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/avxtest.nex: $(USERLAND_BUILD)/AVXTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/AVXTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/mmaptest.nex: $(USERLAND_BUILD)/MMAPTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/MMAPTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/rebtest.nex: $(USERLAND_BUILD)/REBTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/REBTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/orphantest.nex: $(USERLAND_BUILD)/ORPHANTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/ORPHANTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/fbtest.nex: $(USERLAND_BUILD)/FBTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FBTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/polltest.nex: $(USERLAND_BUILD)/POLLTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/POLLTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/polltrunc.nex: $(USERLAND_BUILD)/POLLTRUNC.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/POLLTRUNC.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/argvtest.nex: $(USERLAND_BUILD)/ARGVTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/ARGVTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/fdalloc.nex: $(USERLAND_BUILD)/FDALLOC.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FDALLOC.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/thrdmany.nex: $(USERLAND_BUILD)/THRDMANY.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/THRDMANY.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/nshtest.nex: $(USERLAND_BUILD)/NSHTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/NSHTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/logintest.nex: $(USERLAND_BUILD)/LOGINTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/LOGINTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/randtest.nex: $(USERLAND_BUILD)/RANDTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/RANDTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/permtest.nex: $(USERLAND_BUILD)/PERMTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/PERMTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/nexcheck.nex: $(USERLAND_BUILD)/NEXCHECK.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/NEXCHECK.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/bbspike.nex: $(USERLAND_BUILD)/BBSPIKE.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/BBSPIKE.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/bbsh.nex: $(USERLAND_BUILD)/BBSH.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/BBSH.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/tlbstorm.nex: $(USERLAND_BUILD)/TLBSTORM.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TLBSTORM.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/forkstorm.nex: $(USERLAND_BUILD)/FORKSTORM.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FORKSTORM.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/ptychurn.nex: $(USERLAND_BUILD)/PTYCHURN.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/PTYCHURN.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/sigstorm.nex: $(USERLAND_BUILD)/SIGSTORM.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/SIGSTORM.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/pollstorm.nex: $(USERLAND_BUILD)/POLLSTORM.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/POLLSTORM.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/faultflood.nex: $(USERLAND_BUILD)/FAULTFLOOD.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/FAULTFLOOD.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/ptytest.nex: $(USERLAND_BUILD)/PTYTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/PTYTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/smptest.nex: $(USERLAND_BUILD)/SMPTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/SMPTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/evtest.nex: $(USERLAND_BUILD)/EVTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/EVTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/ipctest.nex: $(USERLAND_BUILD)/IPCTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/IPCTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/pipetest.nex: $(USERLAND_BUILD)/PIPETEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/PIPETEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/tlstest.nex: $(USERLAND_BUILD)/TLSTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TLSTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/nettest.nex: $(USERLAND_BUILD)/NETTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/NETTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/tcptest.nex: $(USERLAND_BUILD)/TCPTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TCPTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/tcpwire.nex: $(USERLAND_BUILD)/TCPWIRE.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TCPWIRE.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/mpitest.nex: $(USERLAND_BUILD)/MPITEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/MPITEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/cwdtest.nex: $(USERLAND_BUILD)/CWDTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/CWDTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/stattest.nex: $(USERLAND_BUILD)/STATTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/STATTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/dirtest.nex: $(USERLAND_BUILD)/DIRTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/DIRTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/lfntest.nex: $(USERLAND_BUILD)/LFNTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/LFNTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/tier0.nex: $(USERLAND_BUILD)/TIER0.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TIER0.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/muslhelo.nex: $(USERLAND_BUILD)/MUSLHELO.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/MUSLHELO.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/muslfork.nex: $(USERLAND_BUILD)/MUSLFORK.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/MUSLFORK.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/ttytest.nex: $(USERLAND_BUILD)/TTYTEST.ELF
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	@./tools/nexify.sh $(USERLAND_BUILD)/TTYTEST.ELF $@
+
+$(NEX_EMBED_TESTS_DIR)/tests.manifest.json: userland/tests.manifest.json
+	@mkdir -p $(NEX_EMBED_TESTS_DIR)
+	cp userland/tests.manifest.json $@
+
+NEX_EMBED_TESTS := $(NEX_EMBED_TESTS_DIR)/spin.nex $(NEX_EMBED_TESTS_DIR)/child.nex $(NEX_EMBED_TESTS_DIR)/parent.nex $(NEX_EMBED_TESTS_DIR)/looper.nex $(NEX_EMBED_TESTS_DIR)/yielder.nex $(NEX_EMBED_TESTS_DIR)/faulter.nex $(NEX_EMBED_TESTS_DIR)/fileio.nex $(NEX_EMBED_TESTS_DIR)/sse_test.nex $(NEX_EMBED_TESTS_DIR)/forktest.nex $(NEX_EMBED_TESTS_DIR)/exectarg.nex $(NEX_EMBED_TESTS_DIR)/mounttst.nex $(NEX_EMBED_TESTS_DIR)/vfstest.nex $(NEX_EMBED_TESTS_DIR)/vttest.nex $(NEX_EMBED_TESTS_DIR)/activettytest.nex $(NEX_EMBED_TESTS_DIR)/vtswitchtest.nex $(NEX_EMBED_TESTS_DIR)/termchild.nex $(NEX_EMBED_TESTS_DIR)/thrdtest.nex $(NEX_EMBED_TESTS_DIR)/sigtest.nex $(NEX_EMBED_TESTS_DIR)/avxtest.nex $(NEX_EMBED_TESTS_DIR)/mmaptest.nex $(NEX_EMBED_TESTS_DIR)/rebtest.nex $(NEX_EMBED_TESTS_DIR)/orphantest.nex $(NEX_EMBED_TESTS_DIR)/fbtest.nex $(NEX_EMBED_TESTS_DIR)/polltest.nex $(NEX_EMBED_TESTS_DIR)/polltrunc.nex $(NEX_EMBED_TESTS_DIR)/argvtest.nex $(NEX_EMBED_TESTS_DIR)/fdalloc.nex $(NEX_EMBED_TESTS_DIR)/thrdmany.nex $(NEX_EMBED_TESTS_DIR)/nshtest.nex $(NEX_EMBED_TESTS_DIR)/logintest.nex $(NEX_EMBED_TESTS_DIR)/randtest.nex $(NEX_EMBED_TESTS_DIR)/permtest.nex $(NEX_EMBED_TESTS_DIR)/nexcheck.nex $(NEX_EMBED_TESTS_DIR)/bbspike.nex $(NEX_EMBED_TESTS_DIR)/bbsh.nex $(NEX_EMBED_TESTS_DIR)/tlbstorm.nex $(NEX_EMBED_TESTS_DIR)/forkstorm.nex $(NEX_EMBED_TESTS_DIR)/ptychurn.nex $(NEX_EMBED_TESTS_DIR)/sigstorm.nex $(NEX_EMBED_TESTS_DIR)/pollstorm.nex $(NEX_EMBED_TESTS_DIR)/faultflood.nex $(NEX_EMBED_TESTS_DIR)/ptytest.nex $(NEX_EMBED_TESTS_DIR)/smptest.nex $(NEX_EMBED_TESTS_DIR)/evtest.nex $(NEX_EMBED_TESTS_DIR)/ipctest.nex $(NEX_EMBED_TESTS_DIR)/pipetest.nex $(NEX_EMBED_TESTS_DIR)/tlstest.nex $(NEX_EMBED_TESTS_DIR)/nettest.nex $(NEX_EMBED_TESTS_DIR)/tcptest.nex $(NEX_EMBED_TESTS_DIR)/tcpwire.nex $(NEX_EMBED_TESTS_DIR)/mpitest.nex $(NEX_EMBED_TESTS_DIR)/cwdtest.nex $(NEX_EMBED_TESTS_DIR)/stattest.nex $(NEX_EMBED_TESTS_DIR)/dirtest.nex $(NEX_EMBED_TESTS_DIR)/lfntest.nex $(NEX_EMBED_TESTS_DIR)/tier0.nex $(NEX_EMBED_TESTS_DIR)/muslhelo.nex $(NEX_EMBED_TESTS_DIR)/muslfork.nex $(NEX_EMBED_TESTS_DIR)/ttytest.nex
+
+
 $(BUILD_DIR)/embedfs_table.c: $(DISK_SRC)/nex-embed-boot/init.nex $(DISK_SRC)/nex-embed-boot/login.nex \
-                               $(DISK_SRC)/nex-embed-boot/term.nex $(DISK_SRC)/nex-embed-boot/nsh.nex
+                               $(DISK_SRC)/nex-embed-boot/term.nex $(DISK_SRC)/nex-embed-boot/nsh.nex \
+                               $(NEX_EMBED_TESTS) $(NEX_EMBED_TESTS_DIR)/tests.manifest.json
 	@# BusyBox is optional (`make busybox` builds it) and, being a port,
 	@# is not in nex-embed-boot -- but /bin is now an embedfs mount, so
 	@# unlike before, it must be embedded to be reachable at all (FAT's
@@ -170,8 +423,12 @@ $(BUILD_DIR)/embedfs_table.c: $(DISK_SRC)/nex-embed-boot/init.nex $(DISK_SRC)/ne
 	    ./tools/nexify.sh $(BUSYBOX_BIN) $(BUILD_DIR)/ports-embed/busybox.nex; \
 	    cp third_party/busybox-config/busybox.test.json $(BUILD_DIR)/ports-embed/; \
 	fi
+	@# Order matters: NEX_EMBED_TESTS_DIR before ports-embed, since
+	@# BusyBox's manifest anchors onto "thrdmany" (a test-suite entry) --
+	@# see gen-embedfs.py's header comment on anchor ordering.
 	LD=$(HOME)/opt/cross-x86_64-elf/bin/x86_64-elf-ld python3 tools/gen-embedfs.py \
-		$(BUILD_DIR)/embedfs_table.c $(DISK_SRC)/nex-embed-boot $(BUILD_DIR)/ports-embed $(EMBED_DIRS)
+		$(BUILD_DIR)/embedfs_table.c $(DISK_SRC)/nex-embed-boot \
+		$(NEX_EMBED_TESTS_DIR) $(BUILD_DIR)/ports-embed $(EMBED_DIRS)
 
 $(BUILD_DIR)/embedfs_table.o: $(BUILD_DIR)/embedfs_table.c
 	$(CC) $(CFLAGS) -c $(BUILD_DIR)/embedfs_table.c -o $(BUILD_DIR)/embedfs_table.o
@@ -573,7 +830,7 @@ $(USERLAND_BUILD)/MPITEST.ELF: $(USERLAND_DIR)/mpitest.c $(USERLAND_DIR)/user.ld
 	mkdir -p $(USERLAND_BUILD)
 	$(CC) $(USER_CFLAGS) -T $(USERLAND_DIR)/user.ld -o $@ $(LIB_BUILD)/crt0.o $(USERLAND_DIR)/mpitest.c -L$(LIB_BUILD) -lneoos
 
-$(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_BUILD)/PARENT.ELF $(USERLAND_BUILD)/LOOPER.ELF $(USERLAND_BUILD)/YIELDER.ELF $(USERLAND_BUILD)/FAULTER.ELF $(USERLAND_BUILD)/FILEIO.ELF $(USERLAND_BUILD)/SSE_TEST.ELF $(USERLAND_BUILD)/FORKTEST.ELF $(USERLAND_BUILD)/EXECTARG.ELF $(USERLAND_BUILD)/MOUNTTST.ELF $(USERLAND_BUILD)/VFSTEST.ELF $(USERLAND_BUILD)/VTTEST.ELF $(USERLAND_BUILD)/ACTIVETTYTEST.ELF $(USERLAND_BUILD)/VTSWITCHTEST.ELF $(USERLAND_BUILD)/TERM.ELF $(USERLAND_BUILD)/TERMCHILD.ELF $(USERLAND_BUILD)/THRDTEST.ELF $(USERLAND_BUILD)/SIGTEST.ELF $(USERLAND_BUILD)/AVXTEST.ELF $(USERLAND_BUILD)/MMAPTEST.ELF $(USERLAND_BUILD)/REBTEST.ELF $(USERLAND_BUILD)/ORPHANTEST.ELF $(USERLAND_BUILD)/INIT.ELF $(USERLAND_BUILD)/FBTEST.ELF $(USERLAND_BUILD)/POLLTEST.ELF $(USERLAND_BUILD)/POLLTRUNC.ELF $(USERLAND_BUILD)/ARGVTEST.ELF $(USERLAND_BUILD)/FDALLOC.ELF $(USERLAND_BUILD)/THRDMANY.ELF $(USERLAND_BUILD)/BBSPIKE.ELF $(USERLAND_BUILD)/NEXCHECK.ELF $(USERLAND_BUILD)/PERMTEST.ELF $(USERLAND_BUILD)/RANDTEST.ELF $(USERLAND_BUILD)/LOGINTEST.ELF $(USERLAND_BUILD)/NSH.ELF $(USERLAND_BUILD)/NSHTEST.ELF $(USERLAND_BUILD)/BBSH.ELF $(USERLAND_BUILD)/TLBSTORM.ELF $(USERLAND_BUILD)/FORKSTORM.ELF $(USERLAND_BUILD)/PTYCHURN.ELF $(USERLAND_BUILD)/SIGSTORM.ELF $(USERLAND_BUILD)/POLLSTORM.ELF $(USERLAND_BUILD)/FAULTFLOOD.ELF $(USERLAND_BUILD)/PTYTEST.ELF $(USERLAND_BUILD)/SMPTEST.ELF $(USERLAND_BUILD)/EVTEST.ELF $(USERLAND_BUILD)/IPCTEST.ELF $(USERLAND_BUILD)/PIPETEST.ELF $(USERLAND_BUILD)/TLSTEST.ELF $(USERLAND_BUILD)/NETTEST.ELF $(USERLAND_BUILD)/TCPTEST.ELF $(USERLAND_BUILD)/TCPWIRE.ELF $(USERLAND_BUILD)/MPITEST.ELF $(USERLAND_BUILD)/CWDTEST.ELF $(USERLAND_BUILD)/STATTEST.ELF $(USERLAND_BUILD)/DIRTEST.ELF $(USERLAND_BUILD)/LFNTEST.ELF $(USERLAND_BUILD)/TIER0.ELF $(USERLAND_BUILD)/MUSLHELO.ELF $(USERLAND_BUILD)/MUSLFORK.ELF $(USERLAND_BUILD)/LOGIN.ELF $(USERLAND_BUILD)/TTYTEST.ELF
+$(DISK_IMG): $(BUILD_DIR)/embedfs_table.c $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_BUILD)/PARENT.ELF $(USERLAND_BUILD)/LOOPER.ELF $(USERLAND_BUILD)/YIELDER.ELF $(USERLAND_BUILD)/FAULTER.ELF $(USERLAND_BUILD)/FILEIO.ELF $(USERLAND_BUILD)/SSE_TEST.ELF $(USERLAND_BUILD)/FORKTEST.ELF $(USERLAND_BUILD)/EXECTARG.ELF $(USERLAND_BUILD)/MOUNTTST.ELF $(USERLAND_BUILD)/VFSTEST.ELF $(USERLAND_BUILD)/VTTEST.ELF $(USERLAND_BUILD)/ACTIVETTYTEST.ELF $(USERLAND_BUILD)/VTSWITCHTEST.ELF $(USERLAND_BUILD)/TERM.ELF $(USERLAND_BUILD)/TERMCHILD.ELF $(USERLAND_BUILD)/THRDTEST.ELF $(USERLAND_BUILD)/SIGTEST.ELF $(USERLAND_BUILD)/AVXTEST.ELF $(USERLAND_BUILD)/MMAPTEST.ELF $(USERLAND_BUILD)/REBTEST.ELF $(USERLAND_BUILD)/ORPHANTEST.ELF $(USERLAND_BUILD)/INIT.ELF $(USERLAND_BUILD)/FBTEST.ELF $(USERLAND_BUILD)/POLLTEST.ELF $(USERLAND_BUILD)/POLLTRUNC.ELF $(USERLAND_BUILD)/ARGVTEST.ELF $(USERLAND_BUILD)/FDALLOC.ELF $(USERLAND_BUILD)/THRDMANY.ELF $(USERLAND_BUILD)/BBSPIKE.ELF $(USERLAND_BUILD)/NEXCHECK.ELF $(USERLAND_BUILD)/PERMTEST.ELF $(USERLAND_BUILD)/RANDTEST.ELF $(USERLAND_BUILD)/LOGINTEST.ELF $(USERLAND_BUILD)/NSH.ELF $(USERLAND_BUILD)/NSHTEST.ELF $(USERLAND_BUILD)/BBSH.ELF $(USERLAND_BUILD)/TLBSTORM.ELF $(USERLAND_BUILD)/FORKSTORM.ELF $(USERLAND_BUILD)/PTYCHURN.ELF $(USERLAND_BUILD)/SIGSTORM.ELF $(USERLAND_BUILD)/POLLSTORM.ELF $(USERLAND_BUILD)/FAULTFLOOD.ELF $(USERLAND_BUILD)/PTYTEST.ELF $(USERLAND_BUILD)/SMPTEST.ELF $(USERLAND_BUILD)/EVTEST.ELF $(USERLAND_BUILD)/IPCTEST.ELF $(USERLAND_BUILD)/PIPETEST.ELF $(USERLAND_BUILD)/TLSTEST.ELF $(USERLAND_BUILD)/NETTEST.ELF $(USERLAND_BUILD)/TCPTEST.ELF $(USERLAND_BUILD)/TCPWIRE.ELF $(USERLAND_BUILD)/MPITEST.ELF $(USERLAND_BUILD)/CWDTEST.ELF $(USERLAND_BUILD)/STATTEST.ELF $(USERLAND_BUILD)/DIRTEST.ELF $(USERLAND_BUILD)/LFNTEST.ELF $(USERLAND_BUILD)/TIER0.ELF $(USERLAND_BUILD)/MUSLHELO.ELF $(USERLAND_BUILD)/MUSLFORK.ELF $(USERLAND_BUILD)/LOGIN.ELF $(USERLAND_BUILD)/TTYTEST.ELF
 	mkdir -p $(DISK_SRC)/dir $(DISK_SRC)/nex
 	printf 'Hello from NeoOS FAT16!\n' > $(DISK_SRC)/hello.txt
 	head -c 8192 /dev/zero | tr '\0' 'N' > $(DISK_SRC)/bigfile.txt
@@ -601,76 +858,6 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	mcopy -i $(DISK_IMG) "$(DISK_SRC)/A Long File Name.txt" "::usr/share/test/A Long File Name.txt"
 	mcopy -i $(DISK_IMG) $(DISK_SRC)/bigfile.txt ::usr/share/test/bigfile.txt
 	mcopy -i $(DISK_IMG) $(DISK_SRC)/dir/nested.txt ::usr/share/test/dir/nested.txt
-	@./tools/nexify.sh $(USERLAND_BUILD)/SPIN.ELF $(DISK_SRC)/nex/spin.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/spin.nex ::usr/tests/spin.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/CHILD.ELF $(DISK_SRC)/nex/child.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/child.nex ::usr/tests/child.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/PARENT.ELF $(DISK_SRC)/nex/parent.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/parent.nex ::usr/tests/parent.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/LOOPER.ELF $(DISK_SRC)/nex/looper.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/looper.nex ::usr/tests/looper.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/YIELDER.ELF $(DISK_SRC)/nex/yielder.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/yielder.nex ::usr/tests/yielder.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FAULTER.ELF $(DISK_SRC)/nex/faulter.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/faulter.nex ::usr/tests/faulter.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FILEIO.ELF $(DISK_SRC)/nex/fileio.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/fileio.nex ::usr/tests/fileio.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/SSE_TEST.ELF $(DISK_SRC)/nex/sse_test.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/sse_test.nex ::usr/tests/sse_test.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FORKTEST.ELF $(DISK_SRC)/nex/forktest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/forktest.nex ::usr/tests/forktest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/EXECTARG.ELF $(DISK_SRC)/nex/exectarg.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/exectarg.nex ::usr/tests/exectarg.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/MOUNTTST.ELF $(DISK_SRC)/nex/mounttst.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/mounttst.nex ::usr/tests/mounttst.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/VFSTEST.ELF $(DISK_SRC)/nex/vfstest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/vfstest.nex ::usr/tests/vfstest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/VTTEST.ELF $(DISK_SRC)/nex/vttest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/vttest.nex ::usr/tests/vttest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/ACTIVETTYTEST.ELF $(DISK_SRC)/nex/activettytest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/activettytest.nex ::usr/tests/activettytest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/VTSWITCHTEST.ELF $(DISK_SRC)/nex/vtswitchtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/vtswitchtest.nex ::usr/tests/vtswitchtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TERMCHILD.ELF $(DISK_SRC)/nex/termchild.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/termchild.nex ::usr/tests/termchild.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/THRDTEST.ELF $(DISK_SRC)/nex/thrdtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/thrdtest.nex ::usr/tests/thrdtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/SIGTEST.ELF $(DISK_SRC)/nex/sigtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/sigtest.nex ::usr/tests/sigtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/AVXTEST.ELF $(DISK_SRC)/nex/avxtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/avxtest.nex ::usr/tests/avxtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/MMAPTEST.ELF $(DISK_SRC)/nex/mmaptest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/mmaptest.nex ::usr/tests/mmaptest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/REBTEST.ELF $(DISK_SRC)/nex/rebtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/rebtest.nex ::usr/tests/rebtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/ORPHANTEST.ELF $(DISK_SRC)/nex/orphantest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/orphantest.nex ::usr/tests/orphantest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FBTEST.ELF $(DISK_SRC)/nex/fbtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/fbtest.nex ::usr/tests/fbtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/POLLTEST.ELF $(DISK_SRC)/nex/polltest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/polltest.nex ::usr/tests/polltest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/POLLTRUNC.ELF $(DISK_SRC)/nex/polltrunc.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/polltrunc.nex ::usr/tests/polltrunc.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/ARGVTEST.ELF $(DISK_SRC)/nex/argvtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/argvtest.nex ::usr/tests/argvtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FDALLOC.ELF $(DISK_SRC)/nex/fdalloc.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/fdalloc.nex ::usr/tests/fdalloc.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/THRDMANY.ELF $(DISK_SRC)/nex/thrdmany.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/thrdmany.nex ::usr/tests/thrdmany.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/NSHTEST.ELF $(DISK_SRC)/nex/nshtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/nshtest.nex ::usr/tests/nshtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/LOGINTEST.ELF $(DISK_SRC)/nex/logintest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/logintest.nex ::usr/tests/logintest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/RANDTEST.ELF $(DISK_SRC)/nex/randtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/randtest.nex ::usr/tests/randtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/PERMTEST.ELF $(DISK_SRC)/nex/permtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/permtest.nex ::usr/tests/permtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/NEXCHECK.ELF $(DISK_SRC)/nex/nexcheck.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/nexcheck.nex ::usr/tests/nexcheck.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/BBSPIKE.ELF $(DISK_SRC)/nex/bbspike.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/bbspike.nex ::usr/tests/bbspike.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/BBSH.ELF $(DISK_SRC)/nex/bbsh.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/bbsh.nex ::usr/tests/bbsh.nex
 	@# BusyBox is optional: `make busybox` builds it, and the image
 	@# picks it up if it is present. A tree that has never built it
 	@# still produces a bootable disk.
@@ -697,128 +884,26 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	else \
 	    echo "disk: no BusyBox (run 'make busybox')"; \
 	fi
-	@./tools/nexify.sh $(USERLAND_BUILD)/TLBSTORM.ELF $(DISK_SRC)/nex/tlbstorm.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/tlbstorm.nex ::usr/tests/tlbstorm.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FORKSTORM.ELF $(DISK_SRC)/nex/forkstorm.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/forkstorm.nex ::usr/tests/forkstorm.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/PTYCHURN.ELF $(DISK_SRC)/nex/ptychurn.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/ptychurn.nex ::usr/tests/ptychurn.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/SIGSTORM.ELF $(DISK_SRC)/nex/sigstorm.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/sigstorm.nex ::usr/tests/sigstorm.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/POLLSTORM.ELF $(DISK_SRC)/nex/pollstorm.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/pollstorm.nex ::usr/tests/pollstorm.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/FAULTFLOOD.ELF $(DISK_SRC)/nex/faultflood.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/faultflood.nex ::usr/tests/faultflood.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/PTYTEST.ELF $(DISK_SRC)/nex/ptytest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/ptytest.nex ::usr/tests/ptytest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/SMPTEST.ELF $(DISK_SRC)/nex/smptest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/smptest.nex ::usr/tests/smptest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/EVTEST.ELF $(DISK_SRC)/nex/evtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/evtest.nex ::usr/tests/evtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/IPCTEST.ELF $(DISK_SRC)/nex/ipctest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/ipctest.nex ::usr/tests/ipctest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/PIPETEST.ELF $(DISK_SRC)/nex/pipetest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/pipetest.nex ::usr/tests/pipetest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TLSTEST.ELF $(DISK_SRC)/nex/tlstest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/tlstest.nex ::usr/tests/tlstest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/NETTEST.ELF $(DISK_SRC)/nex/nettest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/nettest.nex ::usr/tests/nettest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TCPTEST.ELF $(DISK_SRC)/nex/tcptest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/tcptest.nex ::usr/tests/tcptest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TCPWIRE.ELF $(DISK_SRC)/nex/tcpwire.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/tcpwire.nex ::usr/tests/tcpwire.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/MPITEST.ELF $(DISK_SRC)/nex/mpitest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/mpitest.nex ::usr/tests/mpitest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/CWDTEST.ELF $(DISK_SRC)/nex/cwdtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/cwdtest.nex ::usr/tests/cwdtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/STATTEST.ELF $(DISK_SRC)/nex/stattest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/stattest.nex ::usr/tests/stattest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/DIRTEST.ELF $(DISK_SRC)/nex/dirtest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/dirtest.nex ::usr/tests/dirtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/LFNTEST.ELF $(DISK_SRC)/nex/lfntest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/lfntest.nex ::usr/tests/lfntest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TIER0.ELF $(DISK_SRC)/nex/tier0.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/tier0.nex ::usr/tests/tier0.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/MUSLHELO.ELF $(DISK_SRC)/nex/muslhelo.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/muslhelo.nex ::usr/tests/muslhelo.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/MUSLFORK.ELF $(DISK_SRC)/nex/muslfork.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/muslfork.nex ::usr/tests/muslfork.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TTYTEST.ELF $(DISK_SRC)/nex/ttytest.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/ttytest.nex ::usr/tests/ttytest.nex
 	printf '%s\n' \
 	  '# NeoOS test workload -- launched by /sbin/init.nex (see userland/init.c)' \
 	  '# TERM runs first as a wait entry: it claims the active tty +' \
 	  '# framebuffer, renders TERMCHILD, self-checks, and exits before the' \
 	  '# key-injecting suites (ttytest, evtest, polltest) start.' \
 	  'wait /bin/term.nex' \
-	  '# VTSWITCHTEST is a wait entry for the same reason: the active VT' \
-	  '# is global state, and /dev/CONSOLE follows it. A concurrent' \
-	  '# ttytest that set ICANON off through /dev/CONSOLE and read it' \
-	  '# back after a switch got two DIFFERENT terminals, and reported' \
-	  '# that the setting had not stuck.' \
-	  'wait /usr/tests/vtswitchtest.nex' \
-	  'spawn /usr/tests/parent.nex' \
-	  'spawn /usr/tests/looper.nex' \
-	  'spawn /usr/tests/looper.nex' \
-	  'spawn /usr/tests/yielder.nex' \
-	  'spawn /usr/tests/vfstest.nex' \
-	  'spawn /usr/tests/vttest.nex' \
-	  'spawn /usr/tests/activettytest.nex' \
-	  'spawn /usr/tests/cwdtest.nex' \
-	  'spawn /usr/tests/stattest.nex' \
-	  'spawn /usr/tests/dirtest.nex' \
-	  'spawn /usr/tests/lfntest.nex' \
-	  'spawn /usr/tests/tier0.nex' \
-	  'spawn /usr/tests/muslhelo.nex' \
-	  'spawn /usr/tests/muslfork.nex' \
-	  'spawn /usr/tests/ttytest.nex' \
-	  'spawn /usr/tests/thrdtest.nex' \
-	  'spawn /usr/tests/sigtest.nex' \
-	  'spawn /usr/tests/faulter.nex' \
-	  'spawn /usr/tests/avxtest.nex' \
-	  'spawn /usr/tests/mmaptest.nex' \
-	  'spawn /usr/tests/rebtest.nex' \
-	  'spawn /usr/tests/orphantest.nex' \
-	  'spawn /usr/tests/fbtest.nex' \
-	  'spawn /usr/tests/polltest.nex' \
-	  'spawn /usr/tests/polltrunc.nex' \
-	  'spawn /usr/tests/argvtest.nex' \
-	  'spawn /usr/tests/nexcheck.nex' \
-	  'spawn /usr/tests/permtest.nex' \
-	  'spawn /usr/tests/randtest.nex' \
-	  'spawn /usr/tests/fdalloc.nex' \
-	  'spawn /usr/tests/thrdmany.nex' \
-	  '# BBSPIKE is a wait entry: it is a survey, and its value is a' \
-	  '# readable transcript of what BusyBox did. Interleaved with the' \
-	  '# rest of the suite that transcript is unreadable.' \
-	  'wait /usr/tests/bbspike.nex' \
-	  '# BBSH runs an interactive shell on a pty and claims the active' \
-	  '# tty for it. A wait entry for the same reason PTYCHURN is one.' \
-	  'wait /usr/tests/nshtest.nex' \
-	  'wait /usr/tests/logintest.nex' \
-	  'wait /usr/tests/bbsh.nex' \
-	  'spawn /usr/tests/tlbstorm.nex' \
-	  'spawn /usr/tests/forkstorm.nex' \
-	  '# PTYCHURN is a wait entry: it deliberately holds the ENTIRE pty' \
-	  '# pool (all 16) for the length of a round, so anything opening a' \
-	  '# pty beside it gets -ENFILE. ptytest did exactly that.' \
-	  'wait /usr/tests/ptychurn.nex' \
-	  'spawn /usr/tests/sigstorm.nex' \
-	  '# POLLSTORM is a wait entry: it measures poll-broadcast traffic in' \
-	  '# two windows and compares them, so the background load has to be' \
-	  '# the same in both. Run beside the rest of the suite it swung 4.5x.' \
-	  'wait /usr/tests/pollstorm.nex' \
-	  'spawn /usr/tests/ptytest.nex' \
-	  'spawn /usr/tests/smptest.nex' \
-	  'spawn /usr/tests/evtest.nex' \
-	  'spawn /usr/tests/ipctest.nex' \
-	  'spawn /usr/tests/pipetest.nex' \
-	  'spawn /usr/tests/tlstest.nex' \
-	  'spawn /usr/tests/nettest.nex' \
-	  'spawn /usr/tests/tcptest.nex' \
-	  'spawn /usr/tests/tcpwire.nex' \
-	  'spawn /usr/tests/mpitest.nex' \
-	  > $(DISK_SRC)/inittab
+	  > $(DISK_SRC)/inittab.base
+	@# The rest of the suite (every /usr/tests/*.nex entry, plus BusyBox's
+	@# bbspike/nshtest/bbsh) is data-driven now: each test/port ships a
+	@# manifest (userland/tests.manifest.json,
+	@# third_party/busybox-config/busybox.test.json) declaring its own
+	@# inittab line(s) and WHERE to insert them (an "after" anchor to a
+	@# previously-placed entry) -- see tools/apply-inittab-patch.py and
+	@# docs/superpowers/specs/2026-09-05-embedded-test-and-app-architecture.md.
+	@# This is exactly how the hand-tuned interleaving here (BBSPIKE
+	@# right after thrdmany, PTYCHURN holding the whole pty pool alone,
+	@# POLLSTORM needing the same background load in both windows) is
+	@# preserved without hardcoding it.
+	python3 tools/apply-inittab-patch.py $(DISK_SRC)/inittab.base \
+		$(BUILD_DIR)/embedfs-inittab-patch.json > $(DISK_SRC)/inittab
 	mcopy -i $(DISK_IMG) $(DISK_SRC)/inittab ::etc/inittab
 	@# The shell's greeting, generated from the SAME art the kernel
 	@# banner draws (shared/neoos_logo.h) so the two cannot drift.
@@ -992,7 +1077,16 @@ BOOT_MARKER  ?= NeoOS: interrupts enabled, starting scheduler
 # until a scheduler bug stopped three of the five from ever reporting and
 # `make test` still said PASS. grep -F because "[vfstest]" is a character
 # class to a regex, and would never match the literal brackets.
-REQUIRED_MARKERS := \
+# Split from the old single list: these are KERNEL-INTERNAL selftests
+# with no userland test binary behind them (they print straight from
+# boot code), so they're not something any manifest could declare --
+# they stay hardcoded. Everything that WAS a /usr/tests/*.nex or
+# BusyBox marker is now collected from embedfs-markers.txt, generated
+# by tools/gen-embedfs.py from userland/tests.manifest.json and
+# third_party/busybox-config/busybox.test.json. This is what makes a
+# bare `make test` (no test suite, no BusyBox) require a SMALLER set --
+# see docs/superpowers/specs/2026-09-05-embedded-test-and-app-architecture.md.
+CORE_REQUIRED_MARKERS := \
 	"[pci] ALL PASSED" \
 	"[virtio-net] ALL PASSED" \
 	"[route] ALL PASSED" \
@@ -1003,53 +1097,9 @@ REQUIRED_MARKERS := \
 	"[tcp] ALL PASSED" \
 	"[smp] local timer selftest passed" \
 	"[smp] steal selftest passed" \
-	"[vfstest] ALL PASSED" \
-	"[vttest] ALL PASSED" \
-	"[activetty] ALL PASSED" \
-	"[vtswitchtest] ALL PASSED" \
 	"[term] render ALL PASSED" \
-	"[avxtest] ALL PASSED" \
-	"[mmaptest] ALL PASSED" \
-	"[rebtest] ALL PASSED" \
-	"[orphantest] ALL PASSED" \
 	"[init] all entries exited -- powering off" \
-	"[fbtest] ALL PASSED" \
-	"[polltest] ALL PASSED" \
-	"[polltrunc] ALL PASSED" \
-	"[argvtest] ALL PASSED" \
-	"[nexcheck] ALL PASSED" \
-	"[permtest] ALL PASSED" \
-	"[randtest] ALL PASSED" \
-	"[nshtest] ALL PASSED" \
-	"[logintest] ALL PASSED" \
-	"[fdalloc] ALL PASSED" \
-	"[threadmany] ALL PASSED" \
-	"[bbspike] ALL PASSED" \
-	"[bbsh] ALL PASSED" \
-	"[tlbstorm] ALL PASSED" \
-	"[forkstorm] ALL PASSED" \
-	"[ptychurn] ALL PASSED" \
-	"[sigstorm] ALL PASSED" \
-	"[pollstorm] ALL PASSED" \
-	"[ptytest] ALL PASSED" \
 	"[devfs] selftest passed" \
-	"[threadtest] ALL PASSED" \
-	"[sigtest] ALL PASSED" \
-	"[smptest] ALL PASSED" \
-	"[ipctest] ALL PASSED" \
-	"[pipetest] ALL PASSED" \
-	"[tlstest] ALL PASSED" \
-	"[nettest] ALL PASSED" \
-	"[tcptest] ALL PASSED" \
-	"[mpitest] ALL PASSED" \
-	"[cwdtest] ALL PASSED" \
-	"[stattest] ALL PASSED" \
-	"[direnttest] ALL PASSED" \
-	"[lfntest] ALL PASSED" \
-	"[tier0test] ALL PASSED" \
-	"[musltest] ALL PASSED" \
-	"[ttytest] ALL PASSED" \
-	"[evtest] ALL PASSED" \
 	"[tty] selftest passed" \
 	"[wxorx] kernel selftest passed" \
 	"[fb] framebuffer" \
@@ -1062,6 +1112,12 @@ REQUIRED_MARKERS := \
 	"[rtc] selftest passed" \
 	"[keyboard] decode selftest passed" \
 	"[input] selftest passed"
+
+# `=` (recursive), not `:=`: this must re-read embedfs-markers.txt at
+# RECIPE-EXECUTION time, after $(BUILD_DIR)/embedfs_table.c's rule has
+# generated it -- a `:=` would freeze in whatever the file held (or its
+# absence) at Makefile-PARSE time, before that rule has ever run.
+REQUIRED_MARKERS = $(CORE_REQUIRED_MARKERS) $(shell sed 's/.*/"&"/' $(BUILD_DIR)/embedfs-markers.txt 2>/dev/null)
 
 # The fat16 WRITE selftest creates /NEWDIR and /RT.TXT on the real disk
 # image, and the image persists between runs -- so on the second boot

@@ -1,0 +1,605 @@
+[
+  {
+    "_test": "vtswitchtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "term",
+        "line": "wait /usr/tests/vtswitchtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[vtswitchtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "parent",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "vtswitchtest",
+        "line": "spawn /usr/tests/parent.nex"
+      }
+    ],
+    "required_markers": []
+  },
+  {
+    "_test": "looper",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "parent",
+        "line": "spawn /usr/tests/looper.nex"
+      },
+      {
+        "after": "looper",
+        "line": "spawn /usr/tests/looper.nex"
+      }
+    ],
+    "required_markers": []
+  },
+  {
+    "_test": "yielder",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "looper",
+        "line": "spawn /usr/tests/yielder.nex"
+      }
+    ],
+    "required_markers": []
+  },
+  {
+    "_test": "vfstest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "yielder",
+        "line": "spawn /usr/tests/vfstest.nex"
+      }
+    ],
+    "required_markers": [
+      "[vfstest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "vttest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "vfstest",
+        "line": "spawn /usr/tests/vttest.nex"
+      }
+    ],
+    "required_markers": [
+      "[vttest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "activettytest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "vttest",
+        "line": "spawn /usr/tests/activettytest.nex"
+      }
+    ],
+    "required_markers": [
+      "[activetty] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "cwdtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "activettytest",
+        "line": "spawn /usr/tests/cwdtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[cwdtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "stattest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "cwdtest",
+        "line": "spawn /usr/tests/stattest.nex"
+      }
+    ],
+    "required_markers": [
+      "[stattest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "dirtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "stattest",
+        "line": "spawn /usr/tests/dirtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[direnttest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "lfntest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "dirtest",
+        "line": "spawn /usr/tests/lfntest.nex"
+      }
+    ],
+    "required_markers": [
+      "[lfntest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "tier0",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "lfntest",
+        "line": "spawn /usr/tests/tier0.nex"
+      }
+    ],
+    "required_markers": [
+      "[tier0test] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "muslhelo",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "tier0",
+        "line": "spawn /usr/tests/muslhelo.nex"
+      }
+    ],
+    "required_markers": [
+      "[musltest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "muslfork",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "muslhelo",
+        "line": "spawn /usr/tests/muslfork.nex"
+      }
+    ],
+    "required_markers": []
+  },
+  {
+    "_test": "ttytest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "muslfork",
+        "line": "spawn /usr/tests/ttytest.nex"
+      }
+    ],
+    "required_markers": [
+      "[ttytest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "thrdtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "ttytest",
+        "line": "spawn /usr/tests/thrdtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[threadtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "sigtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "thrdtest",
+        "line": "spawn /usr/tests/sigtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[sigtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "faulter",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "sigtest",
+        "line": "spawn /usr/tests/faulter.nex"
+      }
+    ],
+    "required_markers": []
+  },
+  {
+    "_test": "avxtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "faulter",
+        "line": "spawn /usr/tests/avxtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[avxtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "mmaptest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "avxtest",
+        "line": "spawn /usr/tests/mmaptest.nex"
+      }
+    ],
+    "required_markers": [
+      "[mmaptest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "rebtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "mmaptest",
+        "line": "spawn /usr/tests/rebtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[rebtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "orphantest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "rebtest",
+        "line": "spawn /usr/tests/orphantest.nex"
+      }
+    ],
+    "required_markers": [
+      "[orphantest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "fbtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "orphantest",
+        "line": "spawn /usr/tests/fbtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[fbtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "polltest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "fbtest",
+        "line": "spawn /usr/tests/polltest.nex"
+      }
+    ],
+    "required_markers": [
+      "[polltest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "polltrunc",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "polltest",
+        "line": "spawn /usr/tests/polltrunc.nex"
+      }
+    ],
+    "required_markers": [
+      "[polltrunc] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "argvtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "polltrunc",
+        "line": "spawn /usr/tests/argvtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[argvtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "nexcheck",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "argvtest",
+        "line": "spawn /usr/tests/nexcheck.nex"
+      }
+    ],
+    "required_markers": [
+      "[nexcheck] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "permtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "nexcheck",
+        "line": "spawn /usr/tests/permtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[permtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "randtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "permtest",
+        "line": "spawn /usr/tests/randtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[randtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "fdalloc",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "randtest",
+        "line": "spawn /usr/tests/fdalloc.nex"
+      }
+    ],
+    "required_markers": [
+      "[fdalloc] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "thrdmany",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "fdalloc",
+        "line": "spawn /usr/tests/thrdmany.nex"
+      }
+    ],
+    "required_markers": [
+      "[threadmany] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "logintest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "thrdmany",
+        "line": "wait /usr/tests/logintest.nex"
+      }
+    ],
+    "required_markers": [
+      "[logintest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "tlbstorm",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "logintest",
+        "line": "spawn /usr/tests/tlbstorm.nex"
+      }
+    ],
+    "required_markers": [
+      "[tlbstorm] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "forkstorm",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "tlbstorm",
+        "line": "spawn /usr/tests/forkstorm.nex"
+      }
+    ],
+    "required_markers": [
+      "[forkstorm] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "ptychurn",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "forkstorm",
+        "line": "wait /usr/tests/ptychurn.nex"
+      }
+    ],
+    "required_markers": [
+      "[ptychurn] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "sigstorm",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "ptychurn",
+        "line": "spawn /usr/tests/sigstorm.nex"
+      }
+    ],
+    "required_markers": [
+      "[sigstorm] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "pollstorm",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "sigstorm",
+        "line": "wait /usr/tests/pollstorm.nex"
+      }
+    ],
+    "required_markers": [
+      "[pollstorm] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "ptytest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "pollstorm",
+        "line": "spawn /usr/tests/ptytest.nex"
+      }
+    ],
+    "required_markers": [
+      "[ptytest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "smptest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "ptytest",
+        "line": "spawn /usr/tests/smptest.nex"
+      }
+    ],
+    "required_markers": [
+      "[smptest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "evtest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "smptest",
+        "line": "spawn /usr/tests/evtest.nex"
+      }
+    ],
+    "required_markers": [
+      "[evtest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "ipctest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "evtest",
+        "line": "spawn /usr/tests/ipctest.nex"
+      }
+    ],
+    "required_markers": [
+      "[ipctest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "pipetest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "ipctest",
+        "line": "spawn /usr/tests/pipetest.nex"
+      }
+    ],
+    "required_markers": [
+      "[pipetest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "tlstest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "pipetest",
+        "line": "spawn /usr/tests/tlstest.nex"
+      }
+    ],
+    "required_markers": [
+      "[tlstest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "nettest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "tlstest",
+        "line": "spawn /usr/tests/nettest.nex"
+      }
+    ],
+    "required_markers": [
+      "[nettest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "tcptest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "nettest",
+        "line": "spawn /usr/tests/tcptest.nex"
+      }
+    ],
+    "required_markers": [
+      "[tcptest] ALL PASSED"
+    ]
+  },
+  {
+    "_test": "tcpwire",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "tcptest",
+        "line": "spawn /usr/tests/tcpwire.nex"
+      }
+    ],
+    "required_markers": []
+  },
+  {
+    "_test": "mpitest",
+    "category": "tests",
+    "boot_entries": [
+      {
+        "after": "tcpwire",
+        "line": "spawn /usr/tests/mpitest.nex"
+      }
+    ],
+    "required_markers": [
+      "[mpitest] ALL PASSED"
+    ]
+  }
+]

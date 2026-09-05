@@ -235,6 +235,7 @@ void kmain(void *multiboot_info) {
     // 2026-09-05-embedded-test-and-app-architecture.md.
     vfs_mount_fs("bin",  "/bin",  "embedfs");
     vfs_mount_fs("sbin", "/sbin", "embedfs");
+    vfs_mount_fs("tests", "/usr/tests", "embedfs");
     vfs_selftest();
     devfs_selftest();
 
