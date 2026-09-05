@@ -94,34 +94,57 @@ not current fact — check the plan file for what's actually done.
 
 **Organization:** https://github.com/NeoOSOrganization
 
-**Repositories:**
-1. **neoos-kernel** — x86_64 OS kernel (standalone build)
-   - Provides: kernel binary + cross-compiler toolchain + syscall shim
-   - Build: `make test` (runs regression suite in QEMU)
-   - Key files: kernel/, third_party/shim/, toolchain/
+**Repositories (8 — see
+`docs/superpowers/specs/2026-09-05-embedded-test-and-app-architecture.md`
+§4 for why there are 8, not the 6 originally planned):**
+1. **neoos-kernel** — x86_64 OS kernel, boot-critical apps
+   (init/login/term/nsh) only — no tests, no ports, no in-tree musl/libneoos
+   - Provides: kernel binary with `embedfs` (blobs linked directly into
+     the image, replacing FAT-disk delivery of every executable)
+   - Build: `make LIBNEOOS_DIR=../neoos-libneoos/build-output
+     MUSL_DIR=../neoos-musl/build-output test` — passes standalone with
+     a reduced marker set; add `EMBED_DIRS="../neoos-kernel-tests-common/build ..."`
+     for full regression coverage
+   - Key files: kernel/, kernel/fs/embedfs.c, third_party/shim/, tools/gen-embedfs.py
 
 2. **neoos-musl** — musl libc with NeoOS syscall shim integration
-   - Provides: libc.a + headers (with NeoOS syscall translation)
+   - Provides: libc.a + crt1.o + headers (with NeoOS syscall translation)
    - Build: `make KERNEL_SHIM_DIR=../neoos-kernel/third_party/shim`
    - Key files: upstream/ (submodule), build.sh, Makefile
 
-3. **neoos-busybox** — BusyBox port (shell + utilities)
-   - Provides: busybox.nex (static binary, 1.5MB)
+3. **neoos-libneoos** — NeoOS-native libc alternative to musl (crt0,
+   syscall wrappers by NeoOS's own numbers, headers)
+   - Provides: libneoos.a + crt0.o + headers
+   - Build: `make` (no dependency on neoos-kernel at build time)
+   - Key files: src/, include/
+
+4. **neoos-kernel-tests-common** — the ~59-program kernel regression
+   suite, source only; embeds into neoos-kernel via `EMBED_DIRS`
+   - Provides: `<name>.nex` + `tests.manifest.json` per build
+   - Build: `make LIBNEOOS_DIR=... MUSL_DIR=...`
+   - Key files: src/, tests.manifest.json (inittab ordering + required markers)
+
+5. **neoos-busybox** — BusyBox port (shell + utilities)
+   - Provides: busybox.nex (static binary) + busybox.test.json manifest
    - Build: `make MUSL_DIR=../neoos-musl/build-output`
    - Key files: upstream/ (submodule), smoke-test.sh
 
-4. **neoos-3d-ascii-viewer** — 3D ASCII viewer port
+6. **neoos-3d-ascii-viewer** — 3D ASCII viewer port
    - Provides: 3d-ascii-viewer.nex (static binary, 400KB)
    - Build: `make MUSL_DIR=../neoos-musl/build-output`
    - Includes: ncurses-shim/ (terminal emulation layer)
 
-5. **neoos-os-builder** — OS image assembly and orchestration
+7. **neoos-os-builder** — OS image assembly and orchestration
    - Provides: bootable ISO + disk images
-   - Build: `make all` (kernel + musl + ports → ISO)
+   - Build: `make all` (kernel + musl/libneoos + ports → ISO)
+   - `tests.include: false` by default in its config — pulling the
+     regression suite into an assembled image is opt-in
    - Integration: `make test` boots in QEMU
 
-6. **neoos-docs** — Docusaurus documentation site
-   - Deployed to: https://neoos.github.io (GitHub Pages)
+8. **neoos-docs** — Docusaurus documentation site
+   - Deployed to: GitHub Pages (exact domain TBD — see the
+     org-restructuring plan's Task 10; `neoos.github.io` assumed the org
+     login would be `NeoOS`, but it's `NeoOSOrganization`)
    - Includes: Getting started, architecture, porting guide
 
 ### Teams & Access Control
@@ -139,18 +162,19 @@ Phase 1: neoos-kernel
 ├─ Builds: x86_64-elf toolchain + kernel binary
 └─ Exports: third_party/shim/ (syscall translation layer)
 
-Phase 2: neoos-musl
-├─ Consumes: kernel shim from ../neoos-kernel/third_party/shim/
-├─ Builds: libc.a + headers (static)
-└─ Exports: build-output/ (ready to link)
+Phase 2: neoos-musl, neoos-libneoos (parallel, both external to kernel)
+├─ neoos-musl consumes: kernel shim from ../neoos-kernel/third_party/shim/
+├─ neoos-libneoos needs nothing from neoos-kernel (own syscall numbers)
+└─ Both export: build-output/ (ready to link)
 
-Phase 3: Ports (can build in parallel)
+Phase 3: neoos-kernel-tests-common + ports (can build in parallel)
+├─ neoos-kernel-tests-common: `make LIBNEOOS_DIR=... MUSL_DIR=...`
 ├─ neoos-busybox: `make MUSL_DIR=../neoos-musl/build-output`
 ├─ neoos-3d-ascii-viewer: `make MUSL_DIR=../neoos-musl/build-output`
 └─ (future ports follow same contract)
 
 Phase 4: neoos-os-builder
-├─ Orchestrates: kernel + musl + ports
+├─ Orchestrates: kernel + musl/libneoos + tests (opt-in) + ports
 ├─ Produces: ISO + disk.img
 └─ Validates: `make test` boots in QEMU
 ```
@@ -188,6 +212,8 @@ Every component follows a strict interface:
 # Clone all repos (in parallel directories)
 git clone https://github.com/NeoOSOrganization/neoos-kernel ../neoos-kernel
 git clone https://github.com/NeoOSOrganization/neoos-musl ../neoos-musl
+git clone https://github.com/NeoOSOrganization/neoos-libneoos ../neoos-libneoos
+git clone https://github.com/NeoOSOrganization/neoos-kernel-tests-common ../neoos-kernel-tests-common
 git clone https://github.com/NeoOSOrganization/neoos-busybox ../neoos-busybox
 git clone https://github.com/NeoOSOrganization/neoos-3d-ascii-viewer ../neoos-3d-ascii-viewer
 git clone https://github.com/NeoOSOrganization/neoos-os-builder

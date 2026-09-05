@@ -78,6 +78,42 @@ executes).
   checkout via `MUSL_DIR` (commits `82f0b90`, `26e92d3`) — this was
   real, correct prep work. Task 2 builds on it rather than redoing it.
 
+## Progress update (2026-09-05, later same day)
+
+Tasks 0–2 below are done (see their commits). Task 2's own verification
+surfaced a bigger problem than expected — `neoos-kernel`'s `make test`
+structurally depended on BusyBox and ~65 hardcoded test binaries copied
+onto the FAT disk it was often testing — which led to a full detour:
+`docs/superpowers/specs/2026-09-05-embedded-test-and-app-architecture.md`
+and its plan (`docs/superpowers/plans/2026-09-05-embedded-test-and-app-architecture.md`),
+now **complete**. That work:
+
+- Added `embedfs` (kernel/fs/embedfs.c) — blobs linked directly into
+  the kernel image, replacing FAT-disk delivery of every executable.
+- Split `lib/` into a new **`neoos-libneoos`** repo and the ~59
+  regression tests into a new **`neoos-kernel-tests-common`** repo —
+  the org now has **8 repos, not 6**. Every "6 repos" / repo-list
+  reference below and in `CLAUDE.md` should read 8; `CLAUDE.md`'s own
+  list has already been updated.
+- Made `neoos-kernel`'s `make test` genuinely standalone (passes with a
+  reduced marker set with nothing else present) and genuinely
+  restorable to full coverage via `EMBED_DIRS`.
+- Along the way fixed two latent bugs this monorepo's own gauntlet had
+  been silently self-healing from (object-name collisions in
+  `gen-embedfs.py`, `clean-kernel` sweeping a cache directory it
+  shouldn't own) and relocated one CORE marker
+  (`"[smp] steal selftest passed"`) that turned out to need test-suite
+  *presence* (boot lifetime), not a specific binary.
+
+This means Task 2's original scope (below) is superseded/already done
+via that detour — its remaining value is historical context. **Tasks
+3–9 below still need doing**, but their content should be read against
+the real 8-repo shape: Task 4/5 (BusyBox/3d-viewer manifests) should
+now also emit a `<name>.test.json` per the embedded-architecture spec
+§2.3, and Task 7 (os-builder) needs `neoos-libneoos` +
+`neoos-kernel-tests-common` added to its clone/build sequence with the
+`tests.include` flag from that spec's §2.5.
+
 ---
 
 ### Task 0: Correct the record before building on it
