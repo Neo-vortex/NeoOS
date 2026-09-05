@@ -103,8 +103,10 @@ $(BUILD_DIR)/%.o: kernel/%.c $(C_HEADERS)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/kernel.elf: $(ASM_OBJECTS) $(C_OBJECTS) linker.ld
-	$(CC) -T linker.ld -o $(BUILD_DIR)/kernel.elf -ffreestanding -O2 -nostdlib $(ASM_OBJECTS) $(C_OBJECTS) -lgcc
+$(BUILD_DIR)/kernel.elf: $(ASM_OBJECTS) $(C_OBJECTS) $(BUILD_DIR)/embedfs_table.o linker.ld
+	$(CC) -T linker.ld -o $(BUILD_DIR)/kernel.elf -ffreestanding -O2 -nostdlib \
+		$(ASM_OBJECTS) $(C_OBJECTS) $(BUILD_DIR)/embedfs_table.o \
+		$$(cat $(BUILD_DIR)/embedfs-objs.txt 2>/dev/null) -lgcc
 
 iso: $(BUILD_DIR)/kernel.elf
 	mkdir -p $(ISO_DIR)/boot/grub
@@ -124,6 +126,55 @@ LIB_OBJECTS := $(patsubst $(LIB_DIR)/%.c,$(LIB_BUILD)/%.o,$(LIB_SOURCES))
 USERLAND_DIR := userland
 USERLAND_BUILD := $(BUILD_DIR)/userland
 USER_CFLAGS := -ffreestanding -fno-stack-protector -mno-red-zone -msse3 -mssse3 -msse4.1 -msse4.2 -mcmodel=large -fno-pic -ftls-model=local-exec -static -nostdlib -Wall -Wextra -std=gnu11 -O2 -I$(LIB_DIR)/include -Ishared
+
+# ---- embedfs ----------------------------------------------------------
+#
+# Boot-critical apps (init/login/term/nsh) are ALWAYS embedded --
+# without init.nex there is nothing for the kernel to spawn as PID 1
+# (kernel/kernel.c). Everything else (the regression suite, ports) is
+# optional: EMBED_DIRS is empty by default, so a bare `make` embeds
+# only these four. See docs/superpowers/specs/
+# 2026-09-05-embedded-test-and-app-architecture.md.
+EMBED_DIRS ?=
+
+$(DISK_SRC)/nex-embed-boot/init.nex: $(USERLAND_BUILD)/INIT.ELF userland/boot-apps/init.test.json
+	@mkdir -p $(DISK_SRC)/nex-embed-boot
+	./tools/nexify.sh $(USERLAND_BUILD)/INIT.ELF $@
+	cp userland/boot-apps/init.test.json $(DISK_SRC)/nex-embed-boot/
+
+$(DISK_SRC)/nex-embed-boot/login.nex: $(USERLAND_BUILD)/LOGIN.ELF userland/boot-apps/login.test.json
+	@mkdir -p $(DISK_SRC)/nex-embed-boot
+	./tools/nexify.sh $(USERLAND_BUILD)/LOGIN.ELF $@
+	cp userland/boot-apps/login.test.json $(DISK_SRC)/nex-embed-boot/
+
+$(DISK_SRC)/nex-embed-boot/term.nex: $(USERLAND_BUILD)/TERM.ELF userland/boot-apps/term.test.json
+	@mkdir -p $(DISK_SRC)/nex-embed-boot
+	./tools/nexify.sh $(USERLAND_BUILD)/TERM.ELF $@
+	cp userland/boot-apps/term.test.json $(DISK_SRC)/nex-embed-boot/
+
+$(DISK_SRC)/nex-embed-boot/nsh.nex: $(USERLAND_BUILD)/NSH.ELF userland/boot-apps/nsh.test.json
+	@mkdir -p $(DISK_SRC)/nex-embed-boot
+	./tools/nexify.sh $(USERLAND_BUILD)/NSH.ELF $@
+	cp userland/boot-apps/nsh.test.json $(DISK_SRC)/nex-embed-boot/
+
+$(BUILD_DIR)/embedfs_table.c: $(DISK_SRC)/nex-embed-boot/init.nex $(DISK_SRC)/nex-embed-boot/login.nex \
+                               $(DISK_SRC)/nex-embed-boot/term.nex $(DISK_SRC)/nex-embed-boot/nsh.nex
+	@# BusyBox is optional (`make busybox` builds it) and, being a port,
+	@# is not in nex-embed-boot -- but /bin is now an embedfs mount, so
+	@# unlike before, it must be embedded to be reachable at all (FAT's
+	@# ::bin/busybox.nex would otherwise be shadowed and invisible).
+	@# This mirrors the old "@if [ -f $$(BUSYBOX_BIN) ]" gate exactly:
+	@# present if it happened to be built, absent otherwise.
+	@if [ -f $(BUSYBOX_BIN) ]; then \
+	    mkdir -p $(BUILD_DIR)/ports-embed; \
+	    ./tools/nexify.sh $(BUSYBOX_BIN) $(BUILD_DIR)/ports-embed/busybox.nex; \
+	    cp third_party/busybox-config/busybox.test.json $(BUILD_DIR)/ports-embed/; \
+	fi
+	LD=$(HOME)/opt/cross-x86_64-elf/bin/x86_64-elf-ld python3 tools/gen-embedfs.py \
+		$(BUILD_DIR)/embedfs_table.c $(DISK_SRC)/nex-embed-boot $(BUILD_DIR)/ports-embed $(EMBED_DIRS)
+
+$(BUILD_DIR)/embedfs_table.o: $(BUILD_DIR)/embedfs_table.c
+	$(CC) $(CFLAGS) -c $(BUILD_DIR)/embedfs_table.c -o $(BUILD_DIR)/embedfs_table.o
 
 # ---- musl -----------------------------------------------------------
 #
@@ -580,8 +631,6 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/activettytest.nex ::usr/tests/activettytest.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/VTSWITCHTEST.ELF $(DISK_SRC)/nex/vtswitchtest.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/vtswitchtest.nex ::usr/tests/vtswitchtest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/TERM.ELF $(DISK_SRC)/nex/term.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/term.nex ::bin/term.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/TERMCHILD.ELF $(DISK_SRC)/nex/termchild.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/termchild.nex ::usr/tests/termchild.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/THRDTEST.ELF $(DISK_SRC)/nex/thrdtest.nex
@@ -608,14 +657,10 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/fdalloc.nex ::usr/tests/fdalloc.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/THRDMANY.ELF $(DISK_SRC)/nex/thrdmany.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/thrdmany.nex ::usr/tests/thrdmany.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/NSH.ELF $(DISK_SRC)/nex/nsh.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/nsh.nex ::bin/nsh.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/NSHTEST.ELF $(DISK_SRC)/nex/nshtest.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/nshtest.nex ::usr/tests/nshtest.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/LOGINTEST.ELF $(DISK_SRC)/nex/logintest.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/logintest.nex ::usr/tests/logintest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/LOGIN.ELF $(DISK_SRC)/nex/login.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/login.nex ::sbin/login.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/RANDTEST.ELF $(DISK_SRC)/nex/randtest.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/randtest.nex ::usr/tests/randtest.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/PERMTEST.ELF $(DISK_SRC)/nex/permtest.nex
@@ -643,10 +688,12 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	else \
 	    echo "disk: no ports (run 'make ports')"; \
 	fi
+	@# BusyBox itself is no longer copied onto the FAT disk -- /bin is an
+	@# embedfs mount now (see the embedfs_table.c rule above, which
+	@# embeds it directly when $(BUSYBOX_BIN) exists). This block is
+	@# just the informational echo.
 	@if [ -f $(BUSYBOX_BIN) ]; then \
-	    ./tools/nexify.sh $(BUSYBOX_BIN) $(DISK_SRC)/nex/busybox.nex && \
-	    mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/busybox.nex ::bin/busybox.nex && \
-	    echo "disk: BusyBox included ($$(stat -c%s $(BUSYBOX_BIN)) bytes)"; \
+	    echo "disk: BusyBox embedded ($$(stat -c%s $(BUSYBOX_BIN)) bytes)"; \
 	else \
 	    echo "disk: no BusyBox (run 'make busybox')"; \
 	fi
@@ -698,8 +745,6 @@ $(DISK_IMG): $(USERLAND_BUILD)/SPIN.ELF $(USERLAND_BUILD)/CHILD.ELF $(USERLAND_B
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/muslfork.nex ::usr/tests/muslfork.nex
 	@./tools/nexify.sh $(USERLAND_BUILD)/TTYTEST.ELF $(DISK_SRC)/nex/ttytest.nex
 	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/ttytest.nex ::usr/tests/ttytest.nex
-	@./tools/nexify.sh $(USERLAND_BUILD)/INIT.ELF $(DISK_SRC)/nex/init.nex
-	@mcopy -i $(DISK_IMG) $(DISK_SRC)/nex/init.nex ::sbin/init.nex
 	printf '%s\n' \
 	  '# NeoOS test workload -- launched by /sbin/init.nex (see userland/init.c)' \
 	  '# TERM runs first as a wait entry: it claims the active tty +' \

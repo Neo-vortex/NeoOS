@@ -17,11 +17,16 @@
 // it. mount(m, source) takes "bin", "sbin", or "tests" as the
 // category this mount serves; three separate vfs_mount_fs calls (one
 // per category) share the same table.
+// `end` rather than a precomputed `size`: GCC will fold a linker
+// symbol's address into a pointer-typed static initializer (a
+// relocation record), but rejects casting that address to an integer
+// in one -- so the byte count is computed at runtime (`end - data`)
+// instead of at link time.
 struct embedfs_entry {
     const char *category;  // "bin", "sbin", or "tests"
     const char *name;      // e.g. "busybox.nex" -- exact match, no path
     const void *data;
-    uint32_t    size;
+    const void *end;
 };
 
 extern const struct vfs_ops embedfs_ops;

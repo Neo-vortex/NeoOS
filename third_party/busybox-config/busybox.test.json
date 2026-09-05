@@ -1,0 +1,13 @@
+{
+  "category": "bin",
+  "boot_entries": [
+    {"after": "thrdmany", "line": "wait /usr/tests/bbspike.nex"},
+    {"after": "bbspike", "line": "wait /usr/tests/nshtest.nex"},
+    {"after": "logintest", "line": "wait /usr/tests/bbsh.nex"}
+  ],
+  "required_markers": [
+    "[bbspike] ALL PASSED",
+    "[nshtest] ALL PASSED",
+    "[bbsh] ALL PASSED"
+  ]
+}

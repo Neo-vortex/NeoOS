@@ -47,7 +47,7 @@ static int embedfs_read_inode(struct vfs_mount *m, uint64_t inode_id, struct vno
     if (inode_id > (uint64_t)g_embedfs_table_count) { return -ENOENT; }
     const struct embedfs_entry *e = &g_embedfs_table[inode_id - 1];
     out->type = VNODE_FILE;
-    out->size = e->size;
+    out->size = (uint32_t)((const char *)e->end - (const char *)e->data);
     out->mtime = out->atime = out->ctime = 0;
     out->fs_private = (void *)e;
     return 0;
@@ -69,8 +69,9 @@ static int embedfs_lookup(struct vnode *dir, const char *name, uint64_t *out_ino
 
 static int64_t embedfs_read(struct vnode *vn, uint32_t pos, void *buf, uint32_t len) {
     const struct embedfs_entry *e = (const struct embedfs_entry *)vn->fs_private;
-    if (pos >= e->size) { return 0; }
-    if (pos + len > e->size) { len = e->size - pos; }
+    uint32_t size = (uint32_t)((const char *)e->end - (const char *)e->data);
+    if (pos >= size) { return 0; }
+    if (pos + len > size) { len = size - pos; }
     const uint8_t *src = (const uint8_t *)e->data + pos;
     uint8_t *dst = (uint8_t *)buf;
     for (uint32_t i = 0; i < len; i++) { dst[i] = src[i]; }
@@ -116,13 +117,6 @@ static int embedfs_readdir(struct vnode *dir, uint32_t index, struct vfs_dirent 
     }
     return -ENOENT; // past the last entry
 }
-
-// TEMPORARY (Task 1 of the embedded-test-and-app-architecture plan):
-// no build-generated table exists yet, so embedfs is compiled in but
-// mounts nothing meaningful -- every lookup returns ENOENT. Removed
-// once tools/gen-embedfs.py supplies the real table (Task 2).
-const struct embedfs_entry g_embedfs_table[] = {{0, 0, 0, 0}};
-const int g_embedfs_table_count = 0;
 
 const struct vfs_ops embedfs_ops = {
     .mount      = embedfs_mount_op,
